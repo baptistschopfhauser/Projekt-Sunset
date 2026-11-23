@@ -1,0 +1,22 @@
+{
+  "name": "project-sunset",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "PROJECT SUNSET - open-world crime game for the browser (original content, built from the repo mega-prompt spec)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview",
+    "test:logic": "node --experimental-strip-types scripts/logic-tests.ts"
+  },
+  "dependencies": {
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.180.0",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.8"
+  }
+}
