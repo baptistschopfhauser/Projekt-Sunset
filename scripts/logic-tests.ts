@@ -249,7 +249,6 @@ const rng = new RNG(1234);
   bg3.balls[0].vx = -2;
   bg3.step(1 / 60);
   ok(bg3.balls[0].pocketed, 'ball near pocket gets pocketed');
-  bg3.game ?? null;
   const r1 = bg3.resolveShot();
   ok(r1.foul && bg3.ballInHand, 'scratch = foul + ball in hand');
   const bg4 = new BilliardsGame();
