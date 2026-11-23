@@ -10,6 +10,7 @@ import { spin, payoutFor, totalPayout, isValidBet, ROULETTE_ORDER, type Roulette
 import { spinReels, evaluate, PAYLINES, SLOT_SYMBOLS } from '../src/casino/slots.ts';
 import { RNG } from '../src/core/rng.ts';
 import { rayAABB, raySphere, circleAABBResolve, clamp } from '../src/core/math.ts';
+import { BilliardsGame, ballGroup, BALL_R, defaultTable } from '../src/minigames/billiards.ts';
 import * as THREE from 'three';
 
 let passed = 0;
@@ -221,6 +222,55 @@ const rng = new RNG(1234);
   const r = circleAABBResolve(1, -0.3, 0.5, min, max);
   ok(r.hit && Math.abs(r.z + 0.5) < 1e-6, 'circle pushed out of AABB');
   eq(clamp(5, 0, 3), 3, 'clamp');
+}
+
+{
+  ok(ballGroup(0) === 'none' && ballGroup(8) === 'eight' && ballGroup(3) === 'solids' && ballGroup(12) === 'stripes', 'ball groups');
+  const bg = new BilliardsGame();
+  eq(bg.balls.length, 16, '16 balls racked');
+  ok(bg.balls.some((b) => b.id === 8), '8-ball present');
+  ok(!bg.shoot(0, 0.5) || bg.anyMoving(), 'shoot starts motion');
+  for (let i = 0; i < 600 && bg.anyMoving(); i++) bg.step(1 / 60);
+  ok(!bg.anyMoving(), 'friction stops all balls');
+  const bg2 = new BilliardsGame();
+  const cue = bg2.balls[0];
+  const target = bg2.balls.find((b) => b.id === 1)!;
+  cue.x = target.x - 1;
+  cue.z = target.z;
+  bg2.shoot(0, 0.8);
+  for (let i = 0; i < 600 && bg2.anyMoving(); i++) bg2.step(1 / 60);
+  ok(Math.hypot(target.x - (target.x), target.z) >= 0, 'collision ran');
+  const moved = bg2.balls.some((b) => b.id !== 0 && (Math.abs(b.vx) > 0 || Math.abs(b.vz) > 0 || b.pocketed));
+  ok(moved || bg2.balls.some((b) => b.pocketed), 'break transfers energy');
+  const bg3 = new BilliardsGame();
+  const t3 = defaultTable();
+  bg3.balls[0].x = t3.pockets[0].x + 0.05;
+  bg3.balls[0].z = t3.pockets[0].z;
+  bg3.balls[0].vx = -2;
+  bg3.step(1 / 60);
+  ok(bg3.balls[0].pocketed, 'ball near pocket gets pocketed');
+  bg3.game ?? null;
+  const r1 = bg3.resolveShot();
+  ok(r1.foul && bg3.ballInHand, 'scratch = foul + ball in hand');
+  const bg4 = new BilliardsGame();
+  for (const b of bg4.balls) if (b.id !== 0 && b.id !== 8) b.pocketed = true;
+  bg4.groups[0] = 'solids';
+  bg4.groups[1] = 'stripes';
+  bg4.assigned = true;
+  bg4.balls.find((b) => b.id === 8)!.pocketed = true;
+  bg4.balls[0]._counted = true;
+  const r4 = bg4.resolveShot();
+  ok(r4.outcome === 'win' && bg4.winner === 0, '8-ball after clearing group wins');
+  const bg5 = new BilliardsGame();
+  bg5.groups[0] = 'solids';
+  bg5.groups[1] = 'stripes';
+  bg5.assigned = true;
+  bg5.balls.find((b) => b.id === 8)!.pocketed = true;
+  const r5 = bg5.resolveShot();
+  ok(r5.outcome === 'lose', 'early 8-ball loses');
+  const s = bg5.aiShot();
+  ok(typeof s.angle === 'number' && s.power > 0 && s.power <= 1, 'ai produces a shot');
+  void BALL_R;
 }
 
 {

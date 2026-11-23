@@ -4,7 +4,7 @@ import { clamp } from '../core/math.ts';
 import { heightAt, isWater } from '../world/terrain.ts';
 import type { AABBCollider } from '../core/types.ts';
 import type { Input } from './input.ts';
-import { buildCharacter, animateCharacter, ALEX_STYLE, type CharacterParts, type AnimState } from './character.ts';
+import { buildCharacter, animateCharacter, applyStyle, ALEX_STYLE, type CharacterParts, type CharacterStyle, type AnimState } from './character.ts';
 import { EventBus } from '../core/events.ts';
 
 export type PlayerState = 'idle' | 'walk' | 'sprint' | 'crouch' | 'jump' | 'fall' | 'swim' | 'aim' | 'dead' | 'sit' | 'in_vehicle';
@@ -25,6 +25,12 @@ export class Player {
   events: EventBus;
   inVehicleId: number | null = null;
   swimBlocked = false;
+  style: CharacterStyle = { ...ALEX_STYLE };
+
+  setStyle(s: CharacterStyle): void {
+    this.style = { ...s };
+    applyStyle(this.parts, this.style);
+  }
 
   constructor(scene: THREE.Scene, events: EventBus) {
     this.events = events;

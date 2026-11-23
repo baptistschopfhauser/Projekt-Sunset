@@ -16,6 +16,9 @@ import { CombatSystem } from '../combat/combat.ts';
 import { Economy } from '../economy/economy.ts';
 import { ActivityManager } from '../minigames/activityManager.ts';
 import { MissionManager } from '../missions/missionManager.ts';
+import { WorldEvents } from '../world/worldEvents.ts';
+import { RepoJob } from '../missions/repoJob.ts';
+import { WARDROBE, type CharacterStyle2 } from '../player/character.ts';
 import { TimeSystem } from '../weather/time.ts';
 import { WeatherSystem } from '../weather/weather.ts';
 import { HUD } from '../ui/hud.ts';
@@ -47,6 +50,8 @@ export class Game {
   economy: Economy;
   activities: ActivityManager;
   mission: MissionManager;
+  worldEvents: WorldEvents;
+  repo: RepoJob;
   time: TimeSystem;
   weather: WeatherSystem;
   hud: HUD;
@@ -94,6 +99,8 @@ export class Game {
     this.weather.onThunder = () => this.audio.thunder();
     this.activities = new ActivityManager(this.renderer.scene, this.world.graph, this.world, this.events, this.economy);
     this.mission = new MissionManager(this.renderer.scene, this.world, this.events, this.economy, this.peds, this.vehicles, this.police);
+    this.worldEvents = new WorldEvents(this.renderer.scene, this.world.graph, this.world, this.events, this.economy, this.vehicles, this.peds);
+    this.repo = new RepoJob(this.renderer.scene, this.world, this.events, this.economy, this.vehicles);
     this.audio = new AudioManager(this.settings);
     this.saves.init();
     this.settings = this.saves.loadSettings();
@@ -319,6 +326,7 @@ export class Game {
         this.input.lockPointer();
         this.cam.reset();
         this.addMessage('Marcus', 'Alex. Wenn du ein bisschen mehr als Kleingeld verdienen willst, komm heute Abend zu Pier 17. Ich habe einen Job für dich. - Marcus');
+        this.addMessage('Sunset Dispatch', 'Repo-Auftrag verfügbar: Parkplatz Westhaven Motors (Westliche Seite). 600 $ Prämie.');
         this.mission.startMission();
         this.audio.init();
         this.audio.resume();
@@ -365,6 +373,12 @@ export class Game {
     starter.plate = 'SL-0001';
     this.gpsTarget = null;
     this.gpsRoute = null;
+    this.worldEvents?.clear();
+    this.repo.stage = 'idle';
+    if (this.repo.car) {
+      this.vehicles.remove(this.repo.car);
+      this.repo.car = null;
+    }
   }
 
   async loadGame(slot: string): Promise<void> {
@@ -420,6 +434,8 @@ export class Game {
       }
     }
     this.mission.restore(data.mission);
+    this.repo.restore(data.repoStage ?? 'idle');
+    if (data.player.style) this.player.setStyle(data.player.style);
     this.settings = { ...DEFAULT_SETTINGS, ...data.settings };
     this.applySettings();
     this.messages = [];
@@ -454,11 +470,13 @@ export class Game {
         weapons: this.combat.serialize(),
         currentWeapon: this.combat.current,
         inVehicleId: pv ? pv.uid : null,
+        style: { ...this.player.style },
       },
       wantedPoints: this.police.wanted.points,
       ownedVehicles: this.vehicles.serializeOwned(),
       garageOwned: this.garageOwned,
       mission: this.mission.serialize(),
+      repoStage: this.repo.serialize(),
       activityFlags: { ...this.activities.flags },
       stats: { kills: 0, racesWon: 0, deliveriesDone: 0, taxiRides: 0, earnedTotal: 0, spentTotal: 0 },
       settings: { ...this.settings },
@@ -628,10 +646,22 @@ export class Game {
     this.vehicles.update(dt, this.uiLock ? null : vehInput, this.world.colliders, this.weather.tractionMultiplier, this.isNight(), this.player.pos, this.simTime);
     this.combat.vehicles = this.vehicles.vehicles;
     this.peds.update(dt, this.player.pos, this.world.colliders, this.vehicles.vehicles.map((v) => ({ pos: v.pos, vel: v.vel, uid: v.uid, speed: v.speed })), this.simTime);
-    this.police.update(dt, this.player.pos, this.player.inVehicleId !== null, this.player.speed, this.world.colliders, this.vehicles.vehicles, this.simTime, this.isNight());
+    this.police.update(dt, this.player.pos, this.player.inVehicleId !== null, this.player.speed, this.world.colliders, this.vehicles.vehicles, this.simTime, this.isNight(), this.player);
     this.combat.update(dt, this.uiLock || this.hud.dialogOpen ? this.nullInput : this.input, this.renderer.camera, this.player);
-    this.activities.update(dt, this.player.pos, pv ?? null, this.input, this.camDir(), this.settings.quality as QualityLevel);
+    this.activities.update(dt, this.player.pos, pv ?? null, this.input, this.camDir(), this.settings.quality as QualityLevel, () => {
+      const origin = this.renderer.camera.position.clone();
+      const dir = new THREE.Vector3();
+      this.renderer.camera.getWorldDirection(dir);
+      return { origin, dir };
+    });
     this.mission.update(dt, this.player.pos, pv ?? null, this.player, this.simTime);
+    this.repo.update(dt, this.player.pos, pv ?? null, this.player);
+    this.worldEvents.update(dt, this.player.pos, this.simTime);
+    if (this.repo.stage !== this.lastRepoStage) {
+      this.lastRepoStage = this.repo.stage;
+      const m = this.repo.markerPos();
+      if (m && this.repo.stage !== 'done') this.setGpsTarget(m);
+    }
 
     if (pv && pv.destroyed && this.player.inVehicleId === pv.uid) {
       this.forceExitVehicle();
@@ -674,6 +704,10 @@ export class Game {
     if (Math.hypot(this.world.poiSet.casino.cashier.x - p.x, this.world.poiSet.casino.cashier.z - p.z) < 3) return 'E - CHIPS KAUFEN/VERKAUFEN';
     const missionLabel = this.mission.interactLabel(p, this.vehicles.playerVehicle);
     if (missionLabel) return missionLabel;
+    const evLabel = this.worldEvents.interactLabel(p);
+    if (evLabel) return evLabel;
+    const repoLabel = this.repo.interactLabel(p, this.vehicles.playerVehicle);
+    if (repoLabel) return repoLabel;
     for (const poi of this.world.pois) {
       const d = Math.hypot(poi.position.x - p.x, poi.position.z - p.z);
       if (d > poi.radius + 2) continue;
@@ -704,6 +738,8 @@ export class Game {
           return this.vehicles.playerVehicle ? 'E - TAXI-MODUS' : null;
         case 'darts':
           return 'E - DARTS SPIELEN';
+        case 'billiards':
+          return 'E - BILLARD (8-BALL)';
         case 'basketball':
           return 'E - BASKETBALL-CHALLENGE';
         case 'casino':
@@ -740,6 +776,14 @@ export class Game {
     if (text === 'VOLLTANKEN') {
       this.shops.openGas();
       this.setUiLock(true);
+      return;
+    }
+    if (text.startsWith('PANNE') || text.startsWith('TRINKGELD')) {
+      this.worldEvents.interact(p);
+      return;
+    }
+    if (text.startsWith('REPO') || text.startsWith('ANHÄNGEN')) {
+      this.repo.interact(p, this.vehicles.playerVehicle);
       return;
     }
     if (text.startsWith('MIT MARCUS') || text.startsWith('BEOBACHTUNG') || text.startsWith('FRACHT') || text.startsWith('FAHRZEUG ABSTELLEN')) {
@@ -789,7 +833,7 @@ export class Game {
         this.shops.openAtm();
         break;
       case 'apartment':
-        this.sleepDialog();
+        this.apartmentDialog();
         return;
       case 'race':
         if (this.vehicles.playerVehicle) {
@@ -810,6 +854,9 @@ export class Game {
       case 'darts':
         this.openDartsDialog();
         return;
+      case 'billiards':
+        this.openBilliardsDialog();
+        return;
       case 'basketball':
         if (this.activities.startBasketball()) this.hud.setActivityText('Basketball: 60s, 2 Punkte pro Korb, Ziel 20 - LMB halten & loslassen');
         return;
@@ -828,34 +875,93 @@ export class Game {
     this.setUiLock(true);
   }
 
-  private sleepDialog(): void {
+  private apartmentDialog(): void {
     const scr = el('div', 'screen', document.getElementById('app')!);
     scr.style.background = 'rgba(10,13,18,0.85)';
     scr.style.zIndex = '47';
     this.adHocScreen = scr;
     const panel = el('div', 'panel', scr);
-    el('h2', '', panel, 'APARTMENT 3B - SCHLAFEN');
-    const mk = (label: string, hours: number) => {
-      const b = el('button', 'menu-btn', panel, label);
-      b.onclick = () => {
-        this.time.addHours(hours);
-        this.player.heal(100);
-        this.player.stamina = 100;
-        this.events.emit('NOTIFICATION', { text: ` ausgeschlafen (+${hours} h, ${this.time.format()})`, kind: 'info' });
-        scr.remove();
-        this.adHocScreen = null;
-        this.setUiLock(false);
-      };
+    el('h2', '', panel, 'APARTMENT 3B');
+    const sleep = (hours: number) => {
+      this.time.addHours(hours);
+      this.player.heal(100);
+      this.player.stamina = 100;
+      this.events.emit('NOTIFICATION', { text: ` ausgeschlafen (+${hours} h, ${this.time.format()})`, kind: 'info' });
+      scr.remove();
+      this.adHocScreen = null;
+      this.setUiLock(false);
     };
-    mk('6 STUNDEN SCHLAFEN', 6);
-    mk('8 STUNDEN SCHLAFEN', 8);
-    const cancel = el('button', 'menu-btn', panel, 'ABBRECHEN');
-    cancel.onclick = () => {
+    const mk = (label: string, fn: () => void) => {
+      const b = el('button', 'menu-btn', panel, label);
+      b.onclick = fn;
+    };
+    mk('6 STUNDEN SCHLAFEN', () => sleep(6));
+    mk('8 STUNDEN SCHLAFEN', () => sleep(8));
+    mk('SCHRANK - KLEIDUNG WECHSELN', () => {
+      scr.remove();
+      this.adHocScreen = null;
+      this.openWardrobe();
+    });
+    mk('VERLASSEN', () => {
+      scr.remove();
+      this.adHocScreen = null;
+      this.setUiLock(false);
+    });
+    this.setUiLock(true);
+  }
+
+  private openWardrobe(): void {
+    const scr = el('div', 'screen', document.getElementById('app')!);
+    scr.style.background = 'rgba(10,13,18,0.9)';
+    scr.style.zIndex = '48';
+    this.adHocScreen = scr;
+    const panel = el('div', 'panel', scr);
+    el('h2', '', panel, 'SCHRANK - OUTFIT');
+    const style = { ...this.player.style };
+    const groups: [string, number[], (v: number) => void][] = [
+      ['Oberteil', WARDROBE.shirts, (v) => (style.shirt = v)],
+      ['Jacke', WARDROBE.jackets, (v) => (style.jacket = v)],
+      ['Hose', WARDROBE.pants, (v) => (style.pants = v)],
+      ['Schuhe', WARDROBE.shoes, (v) => (style.shoes = v)],
+      ['Kopfbedeckung', WARDROBE.hats, (v) => (style.hat = v + 1)],
+    ];
+    for (const [label, colors, apply] of groups) {
+      el('label', '', panel, label);
+      const row = el('div', 'row', panel);
+      colors.forEach((c, i) => {
+        const b = el('button', 'btn small', row, `#${c.toString(16).padStart(6, '0')}`);
+        b.style.background = `#${c.toString(16).padStart(6, '0')}`;
+        b.style.color = '#000';
+        b.style.minWidth = '70px';
+        b.onclick = () => {
+          apply(i);
+          this.player.setStyle(style);
+          this.openWardrobeRefresh(scr, panel);
+        };
+      });
+      if (label === 'Kopfbedeckung') {
+        const none = el('button', 'btn small', row, 'KEINE');
+        none.onclick = () => {
+          style.hat = 0;
+          this.player.setStyle(style);
+          this.openWardrobeRefresh(scr, panel);
+        };
+      }
+    }
+    const done = el('button', 'btn', panel, 'FERTIG');
+    done.style.marginTop = '14px';
+    done.onclick = () => {
       scr.remove();
       this.adHocScreen = null;
       this.setUiLock(false);
     };
     this.setUiLock(true);
+  }
+
+  private openWardrobeRefresh(scr: HTMLElement, panel: HTMLElement): void {
+    scr.remove();
+    this.openWardrobe();
+    void panel;
   }
 
   private openDartsDialog(): void {
@@ -886,6 +992,36 @@ export class Game {
   }
 
   private dartsActive = false;
+  private billiardsOverTimer = 0;
+  private lastRepoStage = 'idle';
+
+  private openBilliardsDialog(): void {
+    const scr = el('div', 'screen', document.getElementById('app')!);
+    scr.style.background = 'rgba(10,13,18,0.85)';
+    scr.style.zIndex = '47';
+    this.adHocScreen = scr;
+    const panel = el('div', 'panel', scr);
+    el('h2', '', panel, 'BILLARD 8-BALL - THE RUSTY ANCHOR');
+    const mk = (label: string, paid: boolean) => {
+      const b = el('button', 'menu-btn', panel, label);
+      b.onclick = () => {
+        const bar = this.world.poiSet.bar;
+        const topY = bar.poolTable.y + 0.9;
+        if (this.activities.startBilliards(paid, new THREE.Vector3(bar.poolTable.x, 0, bar.poolTable.z), topY)) {
+          scr.remove();
+          this.adHocScreen = null;
+          this.hud.setActivityText('Billard läuft - Maus = Winkel, LMB halten = Kraft, loslassen = Stoß');
+        }
+      };
+    };
+    mk('KOSTENLOS SPIELEN', false);
+    mk('150 $ EINSATZ (Gewinn 300 $)', true);
+    const cancel = el('button', 'menu-btn', panel, 'ABBRECHEN');
+    cancel.onclick = () => {
+      scr.remove();
+      this.adHocScreen = null;
+    };
+  }
 
   private frame(now: number): void {
     requestAnimationFrame((t) => this.frame(t));
@@ -1022,6 +1158,16 @@ export class Game {
         else if (a.kind === 'delivery') this.hud.setActivityText(`Lieferung: ${Math.ceil(a.timeLeft)}s übrig - zum Ziel fahren/laufen`);
         else if (a.kind === 'taxi') this.hud.setActivityText(a.phase === 'toPickup' ? 'Zum Abholpunkt fahren (anhalten)' : 'Zum Ziel fahren (anhalten)');
         else if (a.kind === 'basketball') this.hud.setActivityText(`Basketball: ${a.score} Punkte | ${Math.ceil(a.timeLeft)}s ${a.charge > 0 ? `| Kraft ${(a.charge * 100).toFixed(0)}%` : '| LMB halten & loslassen'}`);
+        else if (a.kind === 'billiards') {
+          this.hud.setActivityText(a.session.statusText());
+          if (a.session.mode === 'over') {
+            this.billiardsOverTimer += 1 / 60;
+            if (this.billiardsOverTimer > 4) {
+              this.billiardsOverTimer = 0;
+              this.activities.stopActivity();
+            }
+          }
+        }
       } else this.hud.setActivityText(null);
     }
 
@@ -1055,6 +1201,13 @@ export class Game {
     }
     el('div', '', panel, `Bargeld: ${fmtMoney(this.economy.cash)} | Bank: ${fmtMoney(this.economy.bank)} | Chips: ${this.economy.chips}`).style.marginTop = '10px';
     if (this.mission.serialize().cargoSecured) el('div', '', panel, 'Missionsgegenstand: Frachtbox (Harbor Job)').style.color = '#F4B544';
+    const cloth = el('button', 'btn', panel, 'KLEIDUNG (Schrank)');
+    cloth.style.marginTop = '8px';
+    cloth.onclick = () => {
+      this.inventoryEl?.remove();
+      this.inventoryEl = null;
+      this.openWardrobe();
+    };
     const close = el('button', 'btn', panel, 'SCHLIESSEN (I)');
     close.style.marginTop = '12px';
     close.onclick = () => this.toggleInventory(true);
@@ -1090,6 +1243,15 @@ export class Game {
     fog.color.setHex(0xbfd9e8).lerp(new THREE.Color(PALETTE.midnightNavy), sun.nightFactor * 0.85).lerp(new THREE.Color(0x8a8f98), this.weather.cloudiness * 0.5);
     this.renderer.scene.background = new THREE.Color().copy(fog.color);
     this.world.updateEnvironment(sun.nightFactor, this.simTime);
+    const wet = this.weather.wetness;
+    const rm = this.world.roadMat as THREE.MeshStandardMaterial;
+    rm.roughness = lerp(0.92, 0.26, wet);
+    rm.metalness = wet * 0.3;
+    const wm = this.world.walkMat as THREE.MeshStandardMaterial;
+    wm.roughness = lerp(0.95, 0.5, wet);
+    const gm = this.world.groundMat as THREE.MeshStandardMaterial;
+    gm.roughness = lerp(0.96, 0.55, wet);
+    this.peds.spawnFactor = (this.weather.rainIntensity > 0.3 ? 0.45 : 1) * (sun.nightFactor > 0.6 ? 0.5 : 1);
     this.lighting.lampPool.forEach((l) => {
       l.intensity = l.intensity * (0.98 + Math.random() * 0.04);
     });

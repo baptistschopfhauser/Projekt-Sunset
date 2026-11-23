@@ -9,8 +9,9 @@ import type { Economy } from '../economy/economy.ts';
 import { Vehicle, type VehicleInput } from '../vehicles/vehicle.ts';
 import { VEHICLES } from '../core/config.ts';
 import { globalRng } from '../core/rng.ts';
+import { BilliardsSession } from './billiards3d.ts';
 
-type ActivityKind = 'race' | 'delivery' | 'taxi' | 'darts' | 'basketball';
+type ActivityKind = 'race' | 'delivery' | 'taxi' | 'darts' | 'basketball' | 'billiards';
 
 interface RaceState {
   kind: 'race';
@@ -70,7 +71,13 @@ interface BasketballState {
   done: boolean;
 }
 
-export type ActivityState = RaceState | DeliveryState | TaxiState | DartsState | BasketballState;
+interface BilliardsState {
+  kind: 'billiards';
+  session: BilliardsSession;
+  entryPaid: boolean;
+}
+
+export type ActivityState = RaceState | DeliveryState | TaxiState | DartsState | BasketballState | BilliardsState;
 
 const TAXI_SPOTS = [
   { x: 200, z: -60 },
@@ -193,6 +200,15 @@ export class ActivityManager {
     return true;
   }
 
+  startBilliards(entryPaid: boolean, tableCenter: THREE.Vector3, tableTopY: number): boolean {
+    if (this.active) return false;
+    if (entryPaid && !this.economy.spend(150, 'Billard-Einsatz')) return false;
+    const session = new BilliardsSession(this.scene, tableCenter, tableTopY, this.events, this.economy, entryPaid);
+    this.active = { kind: 'billiards', session, entryPaid };
+    this.events.emit('ACTIVITY_STARTED', { id: 'billiards', kind: 'billiards' });
+    return true;
+  }
+
   startBasketball(): boolean {
     if (this.active) return false;
     const ball = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 10), new THREE.MeshStandardMaterial({ color: 0xc96f3b, roughness: 0.7 }));
@@ -211,6 +227,7 @@ export class ActivityManager {
     if (this.active.kind === 'basketball' && this.active.ball) {
       this.scene.remove(this.active.ball);
     }
+    if (this.active.kind === 'billiards') this.active.session.dispose();
     this.active = null;
     if (reason === 'done') this.events.emit('ACTIVITY_COMPLETED', { id: '', kind: '', reward: 0 });
   }
@@ -288,10 +305,14 @@ export class ActivityManager {
     st.ballActive = true;
   }
 
-  update(dt: number, playerPos: THREE.Vector3, playerVehicle: Vehicle | null, input: { mouseDown: (b: 'l') => boolean; wasClicked: (b: 'l') => boolean; mouseDX: number; mouseDY: number } | null, camDir: THREE.Vector3, quality: QualityLevel): void {
+  update(dt: number, playerPos: THREE.Vector3, playerVehicle: Vehicle | null, input: { mouseDown: (b: 'l') => boolean; wasClicked: (b: 'l') => boolean; mouseDX: number; mouseDY: number } | null, camDir: THREE.Vector3, quality: QualityLevel, getRay?: () => { origin: THREE.Vector3; dir: THREE.Vector3 }): void {
     const a = this.active;
     if (!a) return;
     if (a.kind === 'race') this.updateRace(dt, a, playerPos, playerVehicle);
+    else if (a.kind === 'billiards') {
+      a.session.update(dt, input, getRay ?? null);
+      if (playerPos.distanceTo(a.session.tableCenter) > 14) this.stopActivity('abort');
+    }
     else if (a.kind === 'delivery') {
       a.timeLeft -= dt;
       if (playerPos.distanceTo(a.target) < 6) {

@@ -22,6 +22,9 @@ export interface World {
   props: ReturnType<typeof buildProps>;
   buildings: ReturnType<typeof buildBuildings>;
   poiSet: ReturnType<typeof buildPOIs>;
+  roadMat: THREE.Material;
+  walkMat: THREE.Material;
+  groundMat: THREE.Material;
 }
 
 function buildGround(scene: THREE.Scene): THREE.Mesh {
@@ -96,7 +99,7 @@ function buildWater(scene: THREE.Scene): THREE.Mesh {
   return mesh;
 }
 
-function buildRoadMeshes(scene: THREE.Scene, graph: RoadGraph): void {
+function buildRoadMeshes(scene: THREE.Scene, graph: RoadGraph): { roadMat: THREE.Material; walkMat: THREE.Material } {
   const asphalt = asphaltTexture();
   const sidewalk = sidewalkTexture();
 
@@ -146,7 +149,8 @@ function buildRoadMeshes(scene: THREE.Scene, graph: RoadGraph): void {
   roadGeo.setAttribute('uv', new THREE.Float32BufferAttribute(roadUVs, 2));
   roadGeo.setIndex(roadIdx);
   roadGeo.computeVertexNormals();
-  const roadMesh = new THREE.Mesh(roadGeo, new THREE.MeshStandardMaterial({ map: asphalt, roughness: 0.92, metalness: 0.02 }));
+  const roadMat = new THREE.MeshStandardMaterial({ map: asphalt, roughness: 0.92, metalness: 0.02 });
+  const roadMesh = new THREE.Mesh(roadGeo, roadMat);
   roadMesh.receiveShadow = true;
   roadMesh.name = 'roads';
   scene.add(roadMesh);
@@ -156,7 +160,8 @@ function buildRoadMeshes(scene: THREE.Scene, graph: RoadGraph): void {
   walkGeo.setAttribute('uv', new THREE.Float32BufferAttribute(walkUVs, 2));
   walkGeo.setIndex(walkIdx);
   walkGeo.computeVertexNormals();
-  const walkMesh = new THREE.Mesh(walkGeo, new THREE.MeshStandardMaterial({ map: sidewalk, roughness: 0.95 }));
+  const walkMat = new THREE.MeshStandardMaterial({ map: sidewalk, roughness: 0.95 });
+  const walkMesh = new THREE.Mesh(walkGeo, walkMat);
   walkMesh.receiveShadow = true;
   walkMesh.name = 'sidewalks';
   scene.add(walkMesh);
@@ -176,6 +181,7 @@ function buildRoadMeshes(scene: THREE.Scene, graph: RoadGraph): void {
   discs.count = dc;
   discs.instanceMatrix.needsUpdate = true;
   scene.add(discs);
+  return { roadMat, walkMat };
 }
 
 function buildHarborWalls(scene: THREE.Scene, colliders: AABBCollider[]): void {
@@ -206,9 +212,9 @@ export function buildWorld(scene: THREE.Scene, seed = 20240917): World {
   const rng = new RNG(seed ^ 0x5f3a);
   const colliders: AABBCollider[] = [];
 
-  buildGround(scene);
+  const groundMesh = buildGround(scene);
   const waterMesh = buildWater(scene);
-  buildRoadMeshes(scene, graph);
+  const { roadMat, walkMat } = buildRoadMeshes(scene, graph);
 
   const poiSet = buildPOIs(scene, colliders);
   const buildings = buildBuildings(graph, colliders, poiSet.reserved, seed ^ 0x1111);
@@ -235,6 +241,9 @@ export function buildWorld(scene: THREE.Scene, seed = 20240917): World {
     props,
     buildings,
     poiSet,
+    roadMat,
+    walkMat,
+    groundMat: groundMesh.material as THREE.Material,
     updateEnvironment(nightFactor: number, timeSec: number) {
       buildings.updateNight(nightFactor);
       props.updateNight(nightFactor);

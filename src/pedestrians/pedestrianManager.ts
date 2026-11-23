@@ -61,6 +61,7 @@ export class PedestrianManager {
   scene: THREE.Scene;
   rng = new RNG(4242);
   maxPeds = 30;
+  spawnFactor = 1;
   private unsub: (() => void)[] = [];
 
   constructor(scene: THREE.Scene, graph: RoadGraph, world: World, events: EventBus) {
@@ -132,6 +133,7 @@ export class PedestrianManager {
       jacket: this.rng.pick(SHIRTS),
       pants: this.rng.pick(PANTS),
       shoes: this.rng.pick([0xd8d3c8, 0x222222, 0x6b4f2a]),
+      hat: 0,
     };
     const ped = new Pedestrian(this.scene, style);
     ped.pos.set(lx, heightAt(lx, lz), lz);
@@ -191,7 +193,7 @@ export class PedestrianManager {
   }
 
   update(dt: number, playerPos: THREE.Vector3, colliders: AABBCollider[], vehicles: { pos: THREE.Vector3; vel: THREE.Vector3; uid: number; speed: number }[], timeSec: number): void {
-    if (this.peds.length < this.maxPeds && Math.random() < dt * 2) this.spawnNear(playerPos);
+    if (this.peds.length < this.maxPeds && Math.random() < dt * 2 * this.spawnFactor) this.spawnNear(playerPos);
 
     for (let i = this.peds.length - 1; i >= 0; i--) {
       const p = this.peds[i];

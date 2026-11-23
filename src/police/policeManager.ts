@@ -11,6 +11,7 @@ import { WantedSystem } from './wanted.ts';
 import { Pedestrian } from '../pedestrians/pedestrianManager.ts';
 import type { PedestrianManager } from '../pedestrians/pedestrianManager.ts';
 import { animateCharacter } from '../player/character.ts';
+import type { Player } from '../player/player.ts';
 
 type UnitRole = 'pursuit' | 'support' | 'roadblock' | 'interceptor';
 
@@ -95,6 +96,8 @@ export class PoliceManager {
   units: PoliceUnit[] = [];
   heli: Helicopter;
   officers: Pedestrian[] = [];
+  roadblock: { units: PoliceUnit[]; barriers: THREE.Mesh[] } | null = null;
+  private roadblockTimer = 0;
   graph: RoadGraph;
   world: World;
   events: EventBus;
@@ -129,9 +132,19 @@ export class PoliceManager {
     return [0, 1, 3, 5, 6, 8][this.wanted.level] ?? 0;
   }
 
-  update(dt: number, playerPos: THREE.Vector3, playerInVehicle: boolean, playerSpeed: number, colliders: AABBCollider[], allVehicles: Vehicle[], timeSec: number, night: boolean): void {
+  update(dt: number, playerPos: THREE.Vector3, playerInVehicle: boolean, playerSpeed: number, colliders: AABBCollider[], allVehicles: Vehicle[], timeSec: number, night: boolean, player?: Player): void {
     const level = this.wanted.level;
     this.spawnCooldown -= dt;
+
+    this.roadblockTimer -= dt;
+    if (level >= 3 && !this.roadblock && this.roadblockTimer <= 0 && !playerInVehicle) {
+      const positions = this.roadblockPositions(playerPos);
+      if (positions.length > 0) {
+        this.spawnRoadblock(positions[0], playerPos);
+        this.roadblockTimer = 25;
+      } else this.roadblockTimer = 8;
+    }
+    if ((level < 3 || this.wanted.level === 0) && this.roadblock) this.clearRoadblock();
 
     if (level > 0 && this.units.length < this.desiredUnitCount() && this.spawnCooldown <= 0) {
       this.spawnCooldown = 2.5;
@@ -189,7 +202,7 @@ export class PoliceManager {
       }
     }
 
-    this.updateOfficers(dt, playerPos, playerInVehicle, playerSpeed);
+    this.updateOfficers(dt, playerPos, playerInVehicle, playerSpeed, player);
 
     const arrestPossible = this.wanted.level >= 1 && !playerInVehicle && playerSpeed < 0.6;
     let nearOfficer = false;
@@ -226,8 +239,50 @@ export class PoliceManager {
     return null;
   }
 
+  private spawnRoadblock(at: THREE.Vector3, playerPos: THREE.Vector3): void {
+    const near = this.graph.nearestEdgePoint(at.x, at.z);
+    const edge = this.graph.nodes[near.nodeA].adj.find((a) => a.to === near.nodeB)?.edge;
+    const roadYaw = edge !== undefined ? Math.atan2(this.graph.edges[edge].dx, this.graph.edges[edge].dz) : 0;
+    const perp = roadYaw + Math.PI / 2;
+    const units: PoliceUnit[] = [];
+    for (const off of [-3.5, 3.5]) {
+      const v = new Vehicle(VEHICLES.solace_patrol, 0x14181f, this.events, this.scene);
+      v.setPosition(at.x + Math.sin(roadYaw) * off, at.z + Math.cos(roadYaw) * off, perp);
+      units.push({ v, role: 'roadblock', route: [], segIdx: 0, t: 0, repathTimer: 0, sirenPhase: 0 });
+    }
+    const barriers: THREE.Mesh[] = [];
+    const bMat = new THREE.MeshStandardMaterial({ color: 0xd8d3c8, roughness: 0.7 });
+    for (let i = -1; i <= 1; i++) {
+      const b = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.0, 0.3), bMat);
+      b.position.set(at.x + Math.cos(roadYaw) * i * 2.6, at.y + 0.5, at.z - Math.sin(roadYaw) * i * 2.6);
+      b.rotation.y = roadYaw;
+      this.scene.add(b);
+      barriers.push(b);
+    }
+    this.roadblock = { units, barriers };
+    this.units.push(...units);
+    this.events.emit('NOTIFICATION', { text: 'Polizei richtet Straßensperre ein!', kind: 'warning' });
+    void playerPos;
+  }
+
+  private clearRoadblock(): void {
+    if (!this.roadblock) return;
+    for (const u of this.roadblock.units) {
+      const i = this.units.indexOf(u);
+      if (i >= 0) this.units.splice(i, 1);
+      u.v.dispose(this.scene);
+    }
+    for (const b of this.roadblock.barriers) this.scene.remove(b);
+    this.roadblock = null;
+  }
+
   private updateUnit(u: PoliceUnit, dt: number, playerPos: THREE.Vector3, timeSec: number): void {
     const v = u.v;
+    if (u.role === 'roadblock') {
+      v.vel.set(0, 0, 0);
+      v.updatePoliceLights(timeSec);
+      return;
+    }
     u.repathTimer -= dt;
     const target = this.wanted.hasVisual || this.wanted.level >= 2 ? playerPos : new THREE.Vector3(this.wanted.lastSeenPos.x, 0, this.wanted.lastSeenPos.z);
     const d = Math.hypot(v.pos.x - target.x, v.pos.z - target.z);
@@ -292,12 +347,14 @@ export class PoliceManager {
     v.updatePoliceLights(timeSec);
   }
 
-  private updateOfficers(dt: number, playerPos: THREE.Vector3, playerInVehicle: boolean, playerSpeed: number): void {
+  private officerFireTimers: number[] = [];
+
+  private updateOfficers(dt: number, playerPos: THREE.Vector3, playerInVehicle: boolean, playerSpeed: number, player?: Player): void {
     if (this.wanted.level >= 1 && !playerInVehicle && this.units.length > 0) {
       const nearUnit = this.units.find((u) => !u.v.destroyed && Math.hypot(u.v.pos.x - playerPos.x, u.v.pos.z - playerPos.z) < 30);
       if (nearUnit && this.officers.filter((o) => !o.dead).length < Math.min(2, this.wanted.level)) {
         if (Math.random() < dt * 0.7) {
-          const style = { skin: 0xc9a184, hair: 0x2a2018, shirt: 0x1d2733, jacket: 0x1d2733, pants: 0x14181f, shoes: 0x111111 };
+          const style = { skin: 0xc9a184, hair: 0x2a2018, shirt: 0x1d2733, jacket: 0x1d2733, pants: 0x14181f, shoes: 0x111111, hat: 0 };
           const o = new Pedestrian(this.scene, style);
           o.isOfficer = true;
           o.pos.copy(nearUnit.v.pos);
@@ -319,6 +376,16 @@ export class PoliceManager {
       const dx = playerPos.x - o.pos.x;
       const dz = playerPos.z - o.pos.z;
       const d = Math.hypot(dx, dz);
+      const fi = this.officers.indexOf(o);
+      this.officerFireTimers[fi] = (this.officerFireTimers[fi] ?? 1.5) - dt;
+      if (player && d < 55 && this.officerFireTimers[fi] <= 0 && !playerInVehicle) {
+        this.officerFireTimers[fi] = 1.4 + Math.random() * 1.1;
+        if (!losBlocked(o.pos.x, o.pos.y + 1.4, o.pos.z, playerPos.x, playerPos.y + 1.3, playerPos.z, this.world.losColliders)) {
+          this.events.emit('WEAPON_FIRED', { weapon: 'meridian_p9', position: { x: o.pos.x, y: o.pos.y + 1.4, z: o.pos.z } });
+          const acc = clamp(0.5 - d / 140, 0.06, 0.5);
+          if (Math.random() < acc) player.damage(7 + Math.random() * 7, 'officer_shot');
+        }
+      }
       if (d > 2.2 && !playerInVehicle) {
         o.pos.x += (dx / d) * 3.4 * dt;
         o.pos.z += (dz / d) * 3.4 * dt;
@@ -347,6 +414,7 @@ export class PoliceManager {
   }
 
   clear(): void {
+    this.clearRoadblock();
     for (const u of this.units) u.v.dispose(this.scene);
     this.units = [];
     for (const o of this.officers) {

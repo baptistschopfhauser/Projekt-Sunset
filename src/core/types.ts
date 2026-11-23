@@ -1,4 +1,5 @@
 import type * as THREE from 'three';
+import type { CharacterStyle } from '../player/character.ts';
 
 export interface Vec3Like {
   x: number;
@@ -41,11 +42,13 @@ export interface SaveData {
     weapons: { id: string; mag: number; reserve: number }[];
     currentWeapon: string;
     inVehicleId: number | null;
+    style?: CharacterStyle;
   };
   wantedPoints: number;
   ownedVehicles: OwnedVehicle[];
   garageOwned: boolean;
   mission: MissionSaveState;
+  repoStage?: string;
   activityFlags: Record<string, boolean>;
   stats: { kills: number; racesWon: number; deliveriesDone: number; taxiRides: number; earnedTotal: number; spentTotal: number };
   settings: SettingsData;

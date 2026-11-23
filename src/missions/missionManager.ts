@@ -120,7 +120,7 @@ export class MissionManager {
 
   private spawnMarcus(at: THREE.Vector3): void {
     this.removeMarcus();
-    const style = { skin: 0x8d5a3b, hair: 0x111111, shirt: 0x37474f, jacket: 0x2a2018, pants: 0x1c1c1c, shoes: 0x222222 };
+    const style = { skin: 0x8d5a3b, hair: 0x111111, shirt: 0x37474f, jacket: 0x2a2018, pants: 0x1c1c1c, shoes: 0x222222, hat: 0 };
     this.marcus = new Pedestrian(this.scene, style);
     this.marcus.pos.set(at.x + 2, heightAt(at.x + 2, at.z), at.z + 2);
     this.marcus.state = 'idle';
@@ -349,7 +349,7 @@ export class MissionManager {
     const mp = this.world.poiSet.missionPoints;
     const coverPts = [mp.recon1, mp.recon2, new THREE.Vector3(mp.ambush.x + 15, 0, mp.ambush.z + 10)];
     for (let i = 0; i < 3; i++) {
-      const style = { skin: 0xc9a184, hair: 0x2a2018, shirt: 0x14181f, jacket: 0x14181f, pants: 0x14181f, shoes: 0x111111 };
+      const style = { skin: 0xc9a184, hair: 0x2a2018, shirt: 0x14181f, jacket: 0x14181f, pants: 0x14181f, shoes: 0x111111, hat: 0 };
       const g = new Pedestrian(this.scene, style);
       const c = coverPts[i % coverPts.length];
       g.pos.set(c.x, heightAt(c.x, c.z), c.z);
