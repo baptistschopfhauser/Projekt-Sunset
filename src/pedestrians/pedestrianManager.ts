@@ -170,7 +170,7 @@ export class PedestrianManager {
     if (ped.health <= 0) {
       ped.dead = true;
       ped.state = 'dead';
-      this.events.emit('PED_KILLED', { pedId: ped.id, cause: 'vehicle' });
+      this.events.emit('PED_KILLED', { pedId: ped.id, cause: 'vehicle', position: { x: ped.pos.x, y: ped.pos.y, z: ped.pos.z }, isOfficer: ped.isOfficer });
       this.events.emit('CRIME_COMMITTED', { type: 'ped_killed', severity: 45, position: { x: ped.pos.x, y: ped.pos.y, z: ped.pos.z } });
     } else {
       this.events.emit('CRIME_COMMITTED', { type: 'assault_civilian', severity: 20, position: { x: ped.pos.x, y: ped.pos.y, z: ped.pos.z } });
@@ -183,7 +183,7 @@ export class PedestrianManager {
     if (ped.health <= 0) {
       ped.dead = true;
       ped.state = 'dead';
-      this.events.emit('PED_KILLED', { pedId: ped.id, cause });
+      this.events.emit('PED_KILLED', { pedId: ped.id, cause, position: { x: ped.pos.x, y: ped.pos.y, z: ped.pos.z }, isOfficer: ped.isOfficer });
       this.events.emit('CRIME_COMMITTED', { type: 'ped_killed', severity: 45, position: { x: ped.pos.x, y: ped.pos.y, z: ped.pos.z } });
     } else {
       ped.state = 'flee';

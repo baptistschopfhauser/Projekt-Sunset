@@ -23,6 +23,9 @@ export class AudioManager {
   private musicTimer: ReturnType<typeof setInterval> | null = null;
   private musicStep = 0;
   private mood: MusicMood = 'menu';
+  radioOn = false;
+  radioStation = 0;
+  private radioNoiseGain: GainNode | null = null;
   settings: SettingsData;
   private noiseBuffer: AudioBuffer | null = null;
 
@@ -117,6 +120,28 @@ export class AudioManager {
     waveFilter.connect(this.waveGain);
     this.waveGain.connect(this.sfxBus);
     this.waveSrc.start();
+
+    this.radioNoiseGain = ctx.createGain();
+    this.radioNoiseGain.gain.value = 0;
+    const rnFilter = ctx.createBiquadFilter();
+    rnFilter.type = 'highpass';
+    rnFilter.frequency.value = 3000;
+    const rnSrc = ctx.createBufferSource();
+    rnSrc.buffer = this.noiseBuffer;
+    rnSrc.loop = true;
+    rnSrc.connect(rnFilter);
+    rnFilter.connect(this.radioNoiseGain);
+    this.radioNoiseGain.connect(this.musicBus);
+    rnSrc.start();
+  }
+
+  setRadio(on: boolean, station = 0): void {
+    this.radioOn = on;
+    this.radioStation = station % 3;
+    const prev = this.mood;
+    this.mood = 'menu';
+    this.setMood(prev);
+    if (this.radioNoiseGain && this.ctx) this.radioNoiseGain.gain.setTargetAtTime(on ? 0.015 : 0, this.ctx.currentTime, 0.2);
   }
 
   resume(): void {
@@ -139,6 +164,19 @@ export class AudioManager {
       this.musicTimer = null;
     }
     if (!this.ctx || !this.musicBus) return;
+    this.musicTimer = setInterval(() => {
+      if (!this.ctx || !this.musicBus) return;
+      const pat = this.radioOn ? this.radioPatterns[this.radioStation] : this.patternsFor(this.mood);
+      const t = this.ctx.currentTime;
+      const bassF = pat.bass[this.musicStep % pat.bass.length];
+      if (bassF > 0) this.note(bassF, t, pat.stepMs / 1000 * 0.9, 'triangle', 0.16);
+      const padF = pat.pad[this.musicStep % pat.pad.length];
+      this.note(padF, t, pat.stepMs / 1000 * 1.8, 'sine', 0.07);
+      this.musicStep++;
+    }, 180);
+  }
+
+  private patternsFor(mood: MusicMood): { bass: number[]; pad: number[]; stepMs: number } {
     const patterns: Record<MusicMood, { bass: number[]; pad: number[]; stepMs: number }> = {
       menu: { bass: [110, 0, 130.8, 0], pad: [220, 261.6, 329.6], stepMs: 420 },
       explore: { bass: [98, 0, 87.3, 0, 98, 0, 116.5, 0], pad: [196, 246.9, 293.7, 246.9], stepMs: 480 },
@@ -146,17 +184,14 @@ export class AudioManager {
       mission: { bass: [87.3, 0, 110, 0, 98, 0, 130.8, 0], pad: [174.6, 220, 261.6, 220], stepMs: 300 },
       casino: { bass: [130.8, 0, 155.6, 0, 130.8, 0, 196, 0], pad: [261.6, 311.1, 392, 311.1], stepMs: 380 },
     };
-    const pat = patterns[mood];
-    this.musicTimer = setInterval(() => {
-      if (!this.ctx || !this.musicBus) return;
-      const t = this.ctx.currentTime;
-      const bassF = pat.bass[this.musicStep % pat.bass.length];
-      if (bassF > 0) this.note(bassF, t, pat.stepMs / 1000 * 0.9, 'triangle', 0.16);
-      const padF = pat.pad[this.musicStep % pat.pad.length];
-      this.note(padF, t, pat.stepMs / 1000 * 1.8, 'sine', 0.07);
-      this.musicStep++;
-    }, pat.stepMs);
+    return patterns[mood];
   }
+
+  private radioPatterns = [
+    { bass: [98, 0, 110, 0, 87.3, 0, 98, 0], pad: [196, 220, 261.6, 220], stepMs: 420 },
+    { bass: [82.4, 82.4, 0, 98, 82.4, 0, 73.4, 0], pad: [164.8, 196, 246.9, 196], stepMs: 240 },
+    { bass: [130.8, 0, 0, 116.5, 0, 98, 0, 110], pad: [261.6, 0, 293.7, 329.6], stepMs: 360 },
+  ];
 
   private note(freq: number, t: number, dur: number, type: OscillatorType, vol: number): void {
     if (!this.ctx || !this.musicBus) return;

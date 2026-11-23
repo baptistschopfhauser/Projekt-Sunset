@@ -11,6 +11,8 @@ import { spinReels, evaluate, PAYLINES, SLOT_SYMBOLS } from '../src/casino/slots
 import { RNG } from '../src/core/rng.ts';
 import { rayAABB, raySphere, circleAABBResolve, clamp } from '../src/core/math.ts';
 import { BilliardsGame, ballGroup, BALL_R, defaultTable } from '../src/minigames/billiards.ts';
+import { explosionDamage } from '../src/vehicles/damageFx.ts';
+import { validateSaveData } from '../src/save/saveManager.ts';
 import * as THREE from 'three';
 
 let passed = 0;
@@ -270,6 +272,37 @@ const rng = new RNG(1234);
   const s = bg5.aiShot();
   ok(typeof s.angle === 'number' && s.power > 0 && s.power <= 1, 'ai produces a shot');
   void BALL_R;
+}
+
+{
+  eq(explosionDamage(0), 70, 'explosion point-blank max');
+  eq(explosionDamage(12), 0, 'explosion zero beyond 12m');
+  ok(explosionDamage(2) === 70 && explosionDamage(4) < explosionDamage(2) && explosionDamage(8) < explosionDamage(4), 'explosion falloff monotonic');
+  eq(explosionDamage(20, 100), 0, 'explosion far zero');
+
+  const goodSave = {
+    version: 1,
+    slot: 'slot1',
+    name: 'Test',
+    savedAt: 1,
+    playTimeSec: 10,
+    worldTimeMinutes: 500,
+    weather: 'CLEAR',
+    player: { position: { x: 0, y: 0, z: 0 }, yaw: 0, health: 100, stamina: 100, cash: 1, bank: 2, chips: 0, weapons: [], currentWeapon: 'meridian_p9', inVehicleId: null },
+    wantedPoints: 0,
+    ownedVehicles: [],
+    garageOwned: false,
+    mission: { id: null, stage: 'NOT_STARTED', checkpoints: [], cargoSecured: false, completed: false },
+    activityFlags: {},
+    stats: { kills: 0, racesWon: 0, deliveriesDone: 0, taxiRides: 0, earnedTotal: 0, spentTotal: 0 },
+    settings: {},
+  };
+  ok(validateSaveData(goodSave), 'valid save passes validation');
+  ok(!validateSaveData(null), 'null save rejected');
+  ok(!validateSaveData({ version: 2 }), 'wrong version rejected');
+  ok(!validateSaveData({ ...goodSave, player: { position: { x: 'a', y: 0, z: 0 } } }), 'non-numeric position rejected');
+  ok(!validateSaveData({ ...goodSave, worldTimeMinutes: NaN }), 'NaN time rejected');
+  ok(!validateSaveData({ ...goodSave, ownedVehicles: {} }), 'bad ownedVehicles rejected');
 }
 
 {

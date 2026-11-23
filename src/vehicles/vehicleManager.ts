@@ -18,6 +18,7 @@ interface TrafficCar {
   side: 1 | -1;
   speed: number;
   stopped: boolean;
+  crashed: boolean;
 }
 
 const CIVILIAN_MODELS = ['volton_metro', 'alden_crest', 'northstar_trail', 'ironhorse_250', 'hauler_v6', 'vexler_gt', 'dockrunner'];
@@ -107,7 +108,7 @@ export class VehicleManager {
     }
     const p = this.graph.pointOnEdge(this.graph.nodes[route[0]].adj.find((x) => x.to === route[1])!.edge, 0.5, 1);
     v.setPosition(p.x, p.z, Math.atan2(this.graph.nodes[route[1]].x - this.graph.nodes[route[0]].x, this.graph.nodes[route[1]].z - this.graph.nodes[route[0]].z));
-    this.traffic.push({ v, route, segIdx: 0, t: 0.5, side: 1, speed: 0, stopped: false });
+    this.traffic.push({ v, route, segIdx: 0, t: 0.5, side: 1, speed: 0, stopped: false, crashed: false });
   }
 
   remove(v: Vehicle): void {
@@ -171,6 +172,12 @@ export class VehicleManager {
         this.traffic.splice(i, 1);
         continue;
       }
+      if (tc.crashed) {
+        tc.speed = 0;
+        v.vel.set(0, 0, 0);
+        v.syncMesh(dt);
+        continue;
+      }
       const dp = Math.hypot(v.pos.x - playerPos.x, v.pos.z - playerPos.z);
       if (dp > 750) {
         this.traffic.splice(i, 1);
@@ -178,6 +185,29 @@ export class VehicleManager {
         continue;
       }
       this.updateTrafficCar(tc, dt, colliders, traction, timeSec);
+    }
+
+    for (let i = 0; i < this.traffic.length; i++) {
+      for (let j = i + 1; j < this.traffic.length; j++) {
+        const a = this.traffic[i];
+        const b = this.traffic[j];
+        if (a.crashed || b.crashed) continue;
+        const dx = a.v.pos.x - b.v.pos.x;
+        const dz = a.v.pos.z - b.v.pos.z;
+        const d = Math.hypot(dx, dz);
+        if (d > 3.4) continue;
+        const rel = Math.abs(a.speed - b.speed);
+        if (rel > 6 || d < 2.2) {
+          a.crashed = true;
+          b.crashed = true;
+          a.speed = 0;
+          b.speed = 0;
+          a.v.applyDamage(180 + Math.random() * 260);
+          b.v.applyDamage(180 + Math.random() * 260);
+          this.events.emit('VEHICLE_DAMAGED', { vehicleId: a.v.uid, amount: 200, position: { x: a.v.pos.x, y: a.v.pos.y, z: a.v.pos.z } });
+          this.events.emit('NOTIFICATION', { text: 'Verkehrsunfall!', kind: 'warning' });
+        }
+      }
     }
 
     if (this.playerVehicle && !this.playerVehicle.destroyed) {

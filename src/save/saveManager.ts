@@ -5,6 +5,21 @@ const DB_NAME = 'project-sunset';
 const STORE = 'saves';
 const SETTINGS_KEY = 'project-sunset-settings';
 
+export function validateSaveData(data: unknown): data is SaveData {
+  if (!data || typeof data !== 'object') return false;
+  const d = data as Record<string, unknown>;
+  if (d.version !== 1) return false;
+  if (typeof d.slot !== 'string' || typeof d.name !== 'string') return false;
+  const p = d.player as Record<string, unknown> | undefined;
+  if (!p || typeof p !== 'object') return false;
+  const pos = p.position as Record<string, unknown> | undefined;
+  if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number' || typeof pos.z !== 'number') return false;
+  if (typeof p.cash !== 'number' || typeof p.bank !== 'number' || !Array.isArray(p.weapons)) return false;
+  if (!Array.isArray(d.ownedVehicles) || !d.mission || !d.settings) return false;
+  if (!Number.isFinite(d.worldTimeMinutes)) return false;
+  return true;
+}
+
 export class SaveManager {
   private db: IDBDatabase | null = null;
   private useFallback = false;
@@ -44,16 +59,23 @@ export class SaveManager {
   }
 
   async load(slot: SaveSlot): Promise<SaveData | null> {
-    if (this.useFallback || !this.db) {
-      const raw = localStorage.getItem(`ps-save-${slot}`);
-      return raw ? (JSON.parse(raw) as SaveData) : null;
+    try {
+      if (this.useFallback || !this.db) {
+        const raw = localStorage.getItem(`ps-save-${slot}`);
+        if (!raw) return null;
+        const parsed: unknown = JSON.parse(raw);
+        return validateSaveData(parsed) ? parsed : null;
+      }
+      const data = await new Promise<SaveData | null>((resolve, reject) => {
+        const tx = this.db!.transaction(STORE, 'readonly');
+        const req = tx.objectStore(STORE).get(slot);
+        req.onsuccess = () => resolve((req.result as SaveData) ?? null);
+        req.onerror = () => reject(req.error);
+      });
+      return data && validateSaveData(data) ? data : null;
+    } catch {
+      return null;
     }
-    return new Promise((resolve, reject) => {
-      const tx = this.db!.transaction(STORE, 'readonly');
-      const req = tx.objectStore(STORE).get(slot);
-      req.onsuccess = () => resolve((req.result as SaveData) ?? null);
-      req.onerror = () => reject(req.error);
-    });
   }
 
   async list(): Promise<SaveData[]> {

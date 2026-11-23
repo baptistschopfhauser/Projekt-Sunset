@@ -19,6 +19,10 @@ import { MissionManager } from '../missions/missionManager.ts';
 import { WorldEvents } from '../world/worldEvents.ts';
 import { RepoJob } from '../missions/repoJob.ts';
 import { WARDROBE, type CharacterStyle2 } from '../player/character.ts';
+import { DamageFX, explosionDamage } from '../vehicles/damageFx.ts';
+import { PerformanceManager, QUALITY_ORDER } from '../core/performance.ts';
+import { PickupManager } from '../world/pickups.ts';
+import { DISTRICTS } from '../core/config.ts';
 import { TimeSystem } from '../weather/time.ts';
 import { WeatherSystem } from '../weather/weather.ts';
 import { HUD } from '../ui/hud.ts';
@@ -52,6 +56,10 @@ export class Game {
   mission: MissionManager;
   worldEvents: WorldEvents;
   repo: RepoJob;
+  damageFx: DamageFX;
+  perf: PerformanceManager;
+  pickups: PickupManager;
+  lastDistrict = '';
   time: TimeSystem;
   weather: WeatherSystem;
   hud: HUD;
@@ -101,6 +109,40 @@ export class Game {
     this.mission = new MissionManager(this.renderer.scene, this.world, this.events, this.economy, this.peds, this.vehicles, this.police);
     this.worldEvents = new WorldEvents(this.renderer.scene, this.world.graph, this.world, this.events, this.economy, this.vehicles, this.peds);
     this.repo = new RepoJob(this.renderer.scene, this.world, this.events, this.economy, this.vehicles);
+    this.damageFx = new DamageFX(this.renderer.scene);
+    this.pickups = new PickupManager(this.renderer.scene);
+    this.perf = new PerformanceManager(this.settings.quality as QualityLevel);
+    this.perf.onChange = (q) => {
+      this.settings.quality = q;
+      this.applySettings();
+      this.hud.notify(`Grafikqualität automatisch: ${q}`, 'info');
+    };
+    this.events.on('VEHICLE_DESTROYED', (p) => this.onVehicleDestroyed(p.position));
+    this.events.on('PED_KILLED', (p) => {
+      if (p.isOfficer) this.pickups.spawnWeapon(p.position.x, p.position.z, 'meridian_p9');
+      else if (Math.random() < 0.4) this.pickups.spawnCash(p.position.x, p.position.z, 10 + Math.floor(Math.random() * 41));
+    });
+    this.events.on('RACE_FINISHED', (p) => {
+      if (p.position !== 1) return;
+      const k = `racewins_${p.route}`;
+      const n = ((this.activities.flags[k] as number) ?? 0) + 1;
+      this.activities.flags[k] = n;
+      if (n === 3 && !this.activities.flags[`bonus_race_${p.route}`]) {
+        this.activities.flags[`bonus_race_${p.route}`] = true;
+        this.economy.earn(2000, `Renn-Serie gewonnen: ${p.route} (3 Siege)`);
+        this.events.emit('NOTIFICATION', { text: '+2.000 $ Renn-Serie (3 Siege in Folge-Zähler)', kind: 'money' });
+      }
+    });
+    this.events.on('ACTIVITY_COMPLETED', (p) => {
+      if (p.id !== 'repo_job') return;
+      const n = ((this.activities.flags.repodone as number) ?? 0) + 1;
+      this.activities.flags.repodone = n;
+      if (n === 3 && !this.activities.flags.bonus_repo) {
+        this.activities.flags.bonus_repo = true;
+        this.economy.earn(3000, 'Repo-Meister (3 Aufträge)');
+        this.events.emit('NOTIFICATION', { text: '+3.000 $ Repo-Meister Bonus!', kind: 'money' });
+      }
+    });
     this.audio = new AudioManager(this.settings);
     this.saves.init();
     this.settings = this.saves.loadSettings();
@@ -374,17 +416,24 @@ export class Game {
     this.gpsTarget = null;
     this.gpsRoute = null;
     this.worldEvents?.clear();
+    this.pickups?.clear();
+    this.damageFx?.clear();
+    if (this.perf) {
+      this.perf.current = this.settings.quality as QualityLevel;
+      this.perf.setConfiguredMax(this.settings.quality as QualityLevel);
+    }
     this.repo.stage = 'idle';
     if (this.repo.car) {
       this.vehicles.remove(this.repo.car);
       this.repo.car = null;
     }
+    this.lastDistrict = '';
   }
 
   async loadGame(slot: string): Promise<void> {
     const data = await this.saves.load(slot as SaveSlot);
     if (!data) {
-      this.events.emit('NOTIFICATION', { text: 'Spielstand nicht gefunden.', kind: 'warning' });
+      this.events.emit('NOTIFICATION', { text: 'Spielstand nicht gefunden oder beschädigt.', kind: 'warning' });
       return;
     }
     this.state = 'LOADING';
@@ -514,7 +563,7 @@ export class Game {
   }
 
   private applySettings(): void {
-    const q = this.settings.quality as QualityLevel;
+    const q = (this.perf?.current ?? this.settings.quality) as QualityLevel;
     if (QUALITY[q]) {
       this.renderer.applyQuality(q, this.settings.resolutionScale);
       this.vehicles.setTrafficTarget(QUALITY[q].traffic);
@@ -544,6 +593,25 @@ export class Game {
       if (target) this.setGpsTarget(target);
     }
     return ok;
+  }
+
+  private onVehicleDestroyed(pos: { x: number; y: number; z: number }): void {
+    const p = new THREE.Vector3(pos.x, pos.y, pos.z);
+    this.damageFx.explosion(p);
+    this.audio.crash(30, p.distanceTo(this.player.pos));
+    if (this.settings.cameraShake) this.cam.addShake(0.9);
+    const dp = p.distanceTo(this.player.pos);
+    if (dp < 12) this.player.damage(explosionDamage(dp), 'explosion');
+    for (const ped of this.peds.peds) {
+      const d = p.distanceTo(ped.pos);
+      if (d < 10 && !ped.dead) this.peds.damagePed(ped, explosionDamage(d) * 0.9, 'explosion');
+    }
+    for (const v of this.vehicles.vehicles) {
+      if (v.destroyed) continue;
+      const d = p.distanceTo(v.pos);
+      if (d < 10) v.applyDamage(400 * (1 - d / 12));
+    }
+    if (Math.random() < 0.25) this.pickups.spawnCash(pos.x + 1, pos.z, 50 + Math.floor(Math.random() * 100));
   }
 
   private onBusted(): void {
@@ -657,6 +725,22 @@ export class Game {
     this.mission.update(dt, this.player.pos, pv ?? null, this.player, this.simTime);
     this.repo.update(dt, this.player.pos, pv ?? null, this.player);
     this.worldEvents.update(dt, this.player.pos, this.simTime);
+    this.damageFx.update(dt);
+    this.pickups.update(dt, this.simTime);
+    for (const v of this.vehicles.vehicles) {
+      if (!v.destroyed && v.damage < 300 && v.speed > 1) {
+        if (Math.random() < dt * 6) {
+          const back = v.heading().multiplyScalar(-v.def.length / 2);
+          this.damageFx.smoke(v.pos.clone().add(back).add(new THREE.Vector3(0, v.def.height * 0.6, 0)), v.damage < 120);
+        }
+      }
+    }
+    const dz = districtAt(this.player.pos.x, this.player.pos.z);
+    if (dz !== this.lastDistrict) {
+      this.lastDistrict = dz;
+      const name = DISTRICTS.find((d) => d.id === dz)?.name ?? dz;
+      this.hud.showCenterMsg(name.toUpperCase(), 2.2);
+    }
     if (this.repo.stage !== this.lastRepoStage) {
       this.lastRepoStage = this.repo.stage;
       const m = this.repo.markerPos();
@@ -708,6 +792,14 @@ export class Game {
     if (evLabel) return evLabel;
     const repoLabel = this.repo.interactLabel(p, this.vehicles.playerVehicle);
     if (repoLabel) return repoLabel;
+    const apt = this.world.poiSet.apartmentInterior;
+    if (p.x > apt.minX && p.x < apt.maxX && p.z > apt.minZ && p.z < apt.maxZ) {
+      if (apt.bed.distanceTo(p) < 2.2) return 'E - SCHLAFEN';
+      if (apt.wardrobe.distanceTo(p) < 2.2) return 'E - SCHRANK ÖFFNEN';
+      return null;
+    }
+    const pickup = this.pickups.nearest(p, 2.4);
+    if (pickup) return pickup.kind === 'cash' ? `E - AUFHEBEN: ${pickup.amount} $` : `E - AUFHEBEN: ${WEAPONS[pickup.weaponId ?? '']?.name ?? 'Waffe'}`;
     for (const poi of this.world.pois) {
       const d = Math.hypot(poi.position.x - p.x, poi.position.z - p.z);
       if (d > poi.radius + 2) continue;
@@ -727,7 +819,7 @@ export class Game {
         case 'gas':
           break;
         case 'apartment':
-          return 'E - SCHLAFEN (Zeit überspringen)';
+          break;
         case 'race': {
           const pv2 = this.vehicles.playerVehicle;
           return pv2 ? `E - RENNEN STARTEN (${poi.name})` : null;
@@ -784,6 +876,36 @@ export class Game {
     }
     if (text.startsWith('REPO') || text.startsWith('ANHÄNGEN')) {
       this.repo.interact(p, this.vehicles.playerVehicle);
+      return;
+    }
+    if (text.startsWith('AUFHEBEN')) {
+      const pickup = this.pickups.nearest(p, 2.4);
+      if (pickup) {
+        if (pickup.kind === 'cash') {
+          this.economy.earn(pickup.amount, 'Beute aufgehoben');
+          this.events.emit('NOTIFICATION', { text: `+${pickup.amount} $`, kind: 'money' });
+        } else if (pickup.weaponId) {
+          if (this.combat.weapons.has(pickup.weaponId)) {
+            const w = this.combat.weapons.get(pickup.weaponId)!;
+            w.reserve += 30;
+            this.events.emit('NOTIFICATION', { text: `+30 Munition (${WEAPONS[pickup.weaponId]?.name})`, kind: 'money' });
+          } else {
+            const def = WEAPONS[pickup.weaponId];
+            this.combat.addWeapon(pickup.weaponId, Math.floor(def.magSize / 2), 30);
+            this.events.emit('NOTIFICATION', { text: `Waffe aufgenommen: ${def.name}`, kind: 'money' });
+          }
+          this.audio.cash();
+        }
+        this.pickups.remove(pickup);
+      }
+      return;
+    }
+    if (text === 'SCHLAFEN') {
+      this.apartmentDialog();
+      return;
+    }
+    if (text.startsWith('SCHRANK')) {
+      this.openWardrobe();
       return;
     }
     if (text.startsWith('MIT MARCUS') || text.startsWith('BEOBACHTUNG') || text.startsWith('FRACHT') || text.startsWith('FAHRZEUG ABSTELLEN')) {
@@ -1065,6 +1187,7 @@ export class Game {
     }
 
     this.audio.update(dt);
+    if (this.state === 'PLAYING') this.perf.update(dt, this.simTime);
     const pv = this.vehicles.playerVehicle;
     this.audio.engineUpdate(pv !== null && !pv.destroyed, pv ? clamp(pv.speedKmh / pv.def.topSpeedKmh, 0, 1) : 0, pv ? pv.speedKmh : 0);
     const nearestPolice = this.police.units.reduce((m, u) => Math.min(m, u.v.pos.distanceTo(this.player.pos)), Infinity);
@@ -1121,6 +1244,19 @@ export class Game {
     if (input.wasPressed('KeyC')) {
       this.cameraModeIdx = (this.cameraModeIdx + 1) % 3;
       this.cam.mode = this.player.inVehicleId !== null ? (['vehicle', 'vehicle', 'hood'] as const)[this.cameraModeIdx] : 'third';
+    }
+    if (this.player.inVehicleId !== null) {
+      if (input.wasPressed('KeyN')) {
+        this.audio.setRadio(!this.audio.radioOn, this.audio.radioStation);
+        this.events.emit('NOTIFICATION', { text: this.audio.radioOn ? `Radio an: Sender ${this.audio.radioStation + 1}` : 'Radio aus', kind: 'info' });
+      }
+      if (input.wasPressed('KeyB')) {
+        const s = (this.audio.radioStation + 1) % 3;
+        this.audio.setRadio(true, s);
+        this.events.emit('NOTIFICATION', { text: `Radio: Sender ${s + 1}`, kind: 'info' });
+      }
+    } else if (this.audio.radioOn) {
+      this.audio.setRadio(false, 0);
     }
 
     const wheelKey = input.down('Tab');

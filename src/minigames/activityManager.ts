@@ -97,7 +97,7 @@ export class ActivityManager {
   economy: Economy;
   scene: THREE.Scene;
   active: ActivityState | null = null;
-  flags: Record<string, boolean> = {};
+  flags: Record<string, boolean | number> = {};
   private raceRoutes: Record<string, { checkpoints: THREE.Vector3[]; start: THREE.Vector3; name: string; reward: number }> = {};
   private dartAimDir = new THREE.Vector3();
 
@@ -393,7 +393,7 @@ export class ActivityManager {
     } else {
       this.events.emit('NOTIFICATION', { text: `Rennen beendet: Platz ${rank}/4`, kind: 'info' });
     }
-    this.events.emit('RACE_FINISHED', { position: rank, reward: won ? route.reward : 0 });
+    this.events.emit('RACE_FINISHED', { position: rank, reward: won ? route.reward : 0, route: a.routeId });
     this.events.emit('ACTIVITY_COMPLETED', { id: a.routeId, kind: 'race', reward: won ? route.reward : 0 });
     for (const o of a.opponents) o.v.dispose(this.scene);
     this.active = null;

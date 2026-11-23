@@ -19,7 +19,7 @@ export interface MenuApi {
   garageOwned(): boolean;
   missionStage(): string;
   economySnapshot(): { cash: number; bank: number; chips: number; transactions: { amount: number; type: string; description: string; time: string; balance: number }[] };
-  activityFlags(): Record<string, boolean>;
+  activityFlags(): Record<string, boolean | number>;
   startDelivery(id: string): boolean;
   startTaxi(): boolean;
   raceRouteIds(): string[];

@@ -33,6 +33,7 @@ export interface POISet {
   courtHoop: { pos: THREE.Vector3; ringRadius: number };
   gasZone: { minX: number; maxX: number; minZ: number; maxZ: number; center: THREE.Vector3; price: number };
   apartmentDoor: THREE.Vector3;
+  apartmentInterior: { door: THREE.Vector3; bed: THREE.Vector3; wardrobe: THREE.Vector3; minX: number; maxX: number; minZ: number; maxZ: number };
 }
 
 function addColliderBox(colliders: AABBCollider[], cx: number, cy: number, cz: number, w: number, h: number, d: number): void {
@@ -381,9 +382,9 @@ export function buildPOIs(group: THREE.Object3D, colliders: AABBCollider[]): POI
   const gasZone = { minX: 410, maxX: 430, minZ: 110, maxZ: 130, center: new THREE.Vector3(420, gasY, 120), price: 2 };
   reg('gas', 'Sunset Fuel', 'gas', 420, 132, 7);
 
-  const aptDoor = shopBuilding(group, colliders, { x: -760, z: 560, w: 20, h: 9, d: 14, color: 0xb08968, sign: 'APARTMENT 3B', signBg: '#2a2018', label: 'Alex Apartment' });
-  reg('apartment', 'Apartment 3B', 'apartment', aptDoor.x, aptDoor.z, 6);
-  const apartmentDoor = aptDoor;
+  const apartmentInterior = buildApartment(group, colliders);
+  reg('apartment', 'Apartment 3B', 'apartment', apartmentInterior.door.x, apartmentInterior.door.z, 6);
+  const apartmentDoor = apartmentInterior.door;
 
   const cafeDoor = shopBuilding(group, colliders, { x: 150, z: -80, w: 12, h: 5, d: 10, color: 0x9a8f6a, sign: 'SOLACE CAFE', signBg: '#3d2a1a' });
   reg('cafe', 'Solace Cafe', 'cafe', cafeDoor.x, cafeDoor.z, 5);
@@ -535,5 +536,77 @@ export function buildPOIs(group: THREE.Object3D, colliders: AABBCollider[]): POI
     courtHoop,
     gasZone,
     apartmentDoor,
+    apartmentInterior,
   };
+}
+
+function buildApartment(group: THREE.Object3D, colliders: AABBCollider[]): { door: THREE.Vector3; bed: THREE.Vector3; wardrobe: THREE.Vector3; minX: number; maxX: number; minZ: number; maxZ: number } {
+  const cx = -760;
+  const cz = 560;
+  const W = 20;
+  const D = 14;
+  const H = 4.2;
+  const y = heightAt(cx, cz);
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0xb08968, roughness: 0.85 });
+  const t = 0.5;
+  const doorW = 2.4;
+  const southZ = cz + D / 2;
+  const walls: [number, number, number, number][] = [
+    [W, cx, cz - D / 2, t],
+    [t, cx - W / 2, cz, D],
+    [t, cx + W / 2, cz, D],
+    [(W - doorW) / 2, cx - (doorW / 2 + (W - doorW) / 4), southZ, t],
+    [(W - doorW) / 2, cx + (doorW / 2 + (W - doorW) / 4), southZ, t],
+  ];
+  for (const [w, x, z, d] of walls) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, H, d), wallMat);
+    m.position.set(x, y + H / 2, z);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    group.add(m);
+    addColliderBox(colliders, x, y, z, w, H, d);
+  }
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.6, D - 0.6), new THREE.MeshStandardMaterial({ color: 0x6b5136, roughness: 0.9 }));
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.set(cx, y + 0.05, cz);
+  floor.receiveShadow = true;
+  group.add(floor);
+  const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.6, D - 0.6), new THREE.MeshStandardMaterial({ color: 0x8a7a5f, emissive: 0xffd9a0, emissiveIntensity: 0.12 }));
+  ceil.rotation.x = Math.PI / 2;
+  ceil.position.set(cx, y + H - 0.05, cz);
+  group.add(ceil);
+  const lamp = new THREE.PointLight(0xffd9a0, 30, 16, 2);
+  lamp.position.set(cx, y + H - 0.5, cz);
+  group.add(lamp);
+
+  const bed = new THREE.Vector3(cx - W / 2 + 2.2, y, cz - D / 2 + 2);
+  const bedFrame = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.4, 1.2), new THREE.MeshStandardMaterial({ color: 0x5a4632, roughness: 0.8 }));
+  bedFrame.position.set(bed.x, y + 0.2, bed.z);
+  const mattress = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.25, 1.1), new THREE.MeshStandardMaterial({ color: 0xd8d3c8, roughness: 0.9 }));
+  mattress.position.set(bed.x, y + 0.52, bed.z);
+  const pillow = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.12, 0.4), new THREE.MeshStandardMaterial({ color: 0xf1f3f5 }));
+  pillow.position.set(bed.x - 0.8, y + 0.68, bed.z);
+  group.add(bedFrame, mattress, pillow);
+  addColliderBox(colliders, bed.x, y, bed.z, 2.2, 0.75, 1.2);
+
+  const wardrobe = new THREE.Vector3(cx + W / 2 - 1.2, y, cz + D / 2 - 1.2);
+  const wardrobeMesh = new THREE.Mesh(new THREE.BoxGeometry(1.8, 2.2, 0.8), new THREE.MeshStandardMaterial({ color: 0x4a3a28, roughness: 0.7 }));
+  wardrobeMesh.position.set(wardrobe.x, y + 1.1, wardrobe.z);
+  wardrobeMesh.castShadow = true;
+  group.add(wardrobeMesh);
+  addColliderBox(colliders, wardrobe.x, y, wardrobe.z, 1.8, 2.2, 0.8);
+
+  const table = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.75, 0.7), new THREE.MeshStandardMaterial({ color: 0x5a4632, roughness: 0.8 }));
+  table.position.set(cx + 2, y + 0.375, cz - 2);
+  group.add(table);
+  addColliderBox(colliders, cx + 2, y, cz - 2, 1.2, 0.75, 0.7);
+
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(8, 2), new THREE.MeshBasicMaterial({ map: signTexture('APARTMENT 3B', '#2a2018') }));
+  sign.position.set(cx, y + H + 2, southZ + 0.1);
+  group.add(sign);
+  const label = labelSprite('Alex Apartment');
+  label.position.set(cx, y + H + 5, cz);
+  group.add(label);
+
+  return { door: new THREE.Vector3(cx, y, southZ + 1.5), bed, wardrobe, minX: cx - W / 2, maxX: cx + W / 2, minZ: cz - D / 2, maxZ: cz + D / 2 };
 }

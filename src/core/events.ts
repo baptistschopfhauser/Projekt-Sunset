@@ -25,7 +25,7 @@ export type EventMap = {
   PLAYER_HEALTH_CHANGED: { health: number };
   PLAYER_DIED: { cause: string };
   WEAPON_FIRED: { weapon: string; position: { x: number; y: number; z: number } };
-  PED_KILLED: { pedId: number; cause: string };
+  PED_KILLED: { pedId: number; cause: string; position: { x: number; y: number; z: number }; isOfficer: boolean };
   PED_HIT_BY_VEHICLE: { pedId: number; vehicleId: number };
   NOTIFICATION: { text: string; kind: 'info' | 'money' | 'warning' | 'mission' };
   GAME_STATE_CHANGED: { state: string };
@@ -38,7 +38,7 @@ export type EventMap = {
   DIALOG_STARTED: { lines: { speaker: string; text: string }[]; onDone?: () => void };
   MISSION_MARKER: { position: { x: number; y: number; z: number } | null; label: string };
   RACE_STARTED: { route: string };
-  RACE_FINISHED: { position: number; reward: number };
+  RACE_FINISHED: { position: number; reward: number; route: string };
 };
 
 export type EventName = keyof EventMap;

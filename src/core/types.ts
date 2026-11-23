@@ -49,7 +49,7 @@ export interface SaveData {
   garageOwned: boolean;
   mission: MissionSaveState;
   repoStage?: string;
-  activityFlags: Record<string, boolean>;
+  activityFlags: Record<string, boolean | number>;
   stats: { kills: number; racesWon: number; deliveriesDone: number; taxiRides: number; earnedTotal: number; spentTotal: number };
   settings: SettingsData;
 }

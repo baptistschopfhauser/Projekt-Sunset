@@ -33,7 +33,15 @@ no external assets are downloaded.
 - **Minigames**: 3 street races vs 3 AI opponents on road routes (500/900/1500 $), 3 delivery jobs with timers, taxi mode with pickup/dropoff and distance fare, darts 301 vs AI with real board scoring (double/triple/bull, bust rule), basketball 60 s challenge with projectile ball and hoop detection, and **8-ball billiards** on the bar pool table: real ball physics (friction, cushions, elastic collisions, 6 pockets), full rules (break, group assignment, ball-in-hand on scratch, early 8-ball loss), AI opponent, free or 150 $ entry (300 $ payout).
 - **Dynamic world events** (every 6-10 min, max 2 concurrent): traffic accidents with damaged cars + police report, breakdowns with E-interaction (+75 $), police checkpoints, street musician with tip, car meet at Crown Marina where a car leaves via the real road graph.
 - **Mission THE HARBOR JOB**: multi-stage (meet Marcus -> 3 recon points -> getaway vehicle at rendezvous -> scripted truck arrival -> ambush with 3 armed guards using cover -> secure cargo (wanted level 3+) -> escape docks -> lose police -> deliver for 18.000 $), dialogs, markers/GPS, checkpoints on death) plus a repeatable **repo side job** (pickup -> deliver to AutoFix zone, 600 $).
-- **Wardrobe**: apartment wardrobe + inventory clothing menu (3 shirts, 2 jackets, 3 pants, 3 shoes, 2 headwear variants with real silhouette changes), persisted in savegames.
+- **Wardrobe**: inventory clothing menu (3 shirts, 2 jackets, 3 pants, 3 shoes, 2 headwear variants with real silhouette changes), persisted in savegames.
+- **Apartment interior**: walkable Apartment 3B with bed (sleep 6/8 h), wardrobe and furniture.
+- **Vehicle damage feedback**: smoke from heavily damaged vehicles, full explosion (flash, particles, AoE damage falloff, camera shake) on destruction; wrecks can drop cash.
+- **Loot pickups**: killed civilians sometimes drop cash, fallen officers drop their pistol - pick up with E.
+- **Car radio**: N toggles, B changes station (3 procedural stations) while driving.
+- **Adaptive performance**: FPS is monitored and the quality preset steps down/up automatically (spec 2.7).
+- **Live traffic accidents** (spec 9.7): crossing traffic cars that collide stop with damage and trigger reactions.
+- **District toasts** when entering a new district; corrupted savegames are rejected with a message (spec 2.10).
+- **Progression bonuses**: 3 wins on a race route -> +2.000 $ once; 3 repo jobs -> +3.000 $ once (persisted flags).
 - **HUD/UI**: minimap with roads/water/POIs/police/GPS route, full map (M) with pan/zoom/click-GPS, health/stamina, money, 5 stars, ammo, vehicle speed/fuel/damage, mission objective, interaction prompts, notifications, dialogs, smartphone (H) with messages/map/garage/bank/activities/contacts/settings apps, inventory (I).
 - **Save**: versioned saves in IndexedDB (localStorage fallback), 3 slots + autosave (every 5 min outside combat and after missions), settings in localStorage.
 - **Audio**: fully procedural WebAudio - engine, siren, gunshots, impacts, footsteps, UI, cash, thunder, rain, waves, and a generative music system with moods (menu/explore/pursuit/mission/casino); master/music/sfx buses.
@@ -53,4 +61,4 @@ no external assets are downloaded.
 
 - `npx tsc --noEmit` - clean.
 - `npm run build` - clean (700 kB bundle).
-- `npm run test:logic` - 465 assertions passing (road graph/A*, wanted levels/timers, economy atomicity, blackjack rules, roulette payouts, slots paylines, billiards physics/rules, collision math, spec data tables).
+- `npm run test:logic` - 475 assertions passing (road graph/A*, wanted levels/timers, economy atomicity, blackjack rules, roulette payouts, slots paylines, billiards physics/rules, explosion falloff, save validation, collision math, spec data tables).
