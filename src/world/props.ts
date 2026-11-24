@@ -12,8 +12,10 @@ export interface PropSet {
   lampPositions: THREE.Vector3[];
   buildingMats: THREE.MeshStandardMaterial[];
   treeMat: THREE.MeshStandardMaterial;
-  updateNight(night: number): void;
+  updateNight(night: number, timeSec?: number, wind?: number): void;
 }
+
+export const windUniforms = { uTime: { value: 0 }, uWind: { value: 1 } };
 
 export function buildProps(graph: RoadGraph, colliders: AABBCollider[], rng: RNG): PropSet {
   const group = new THREE.Group();
@@ -59,6 +61,14 @@ export function buildProps(graph: RoadGraph, colliders: AABBCollider[], rng: RNG
   headMesh.instanceMatrix.needsUpdate = true;
   group.add(poleMesh, headMesh);
 
+  const coneGeo = new THREE.ConeGeometry(2.6, 6.4, 14, 1, true);
+  coneGeo.translate(0, -3.2, 0);
+  const lampConeMat = new THREE.MeshBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  const coneMesh = new THREE.InstancedMesh(coneGeo, lampConeMat, Math.max(1, heads.length));
+  heads.forEach((m, i) => coneMesh.setMatrixAt(i, m));
+  coneMesh.instanceMatrix.needsUpdate = true;
+  group.add(coneMesh);
+
   const trunkGeo = new THREE.CylinderGeometry(0.18, 0.28, 2.2, 6);
   trunkGeo.translate(0, 1.1, 0);
   const folGeo = new THREE.IcosahedronGeometry(1.9, 1);
@@ -99,6 +109,17 @@ export function buildProps(graph: RoadGraph, colliders: AABBCollider[], rng: RNG
     folMats.push(dummy.matrix.clone());
     folColors.push(new THREE.Color().setHSL(0.29 + rng.range(-0.05, 0.05), 0.45, 0.28 + rng.range(0, 0.1)));
   }
+  treeMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = windUniforms.uTime;
+    shader.uniforms.uWind = windUniforms.uWind;
+    shader.vertexShader = 'uniform float uTime;\nuniform float uWind;\n' + shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+       float swayAmp = clamp((position.y - 1.5) / 4.0, 0.0, 1.0) * uWind * 0.14;
+       transformed.x += sin(uTime * 1.6 + position.x * 0.35 + position.z * 0.3) * swayAmp;
+       transformed.z += cos(uTime * 1.1 + position.z * 0.4) * swayAmp * 0.7;`
+    );
+  };
   const trunkMesh = new THREE.InstancedMesh(trunkGeo, trunkMat, Math.max(1, trunkMats.length));
   const folMesh = new THREE.InstancedMesh(folGeo, treeMat, Math.max(1, folMats.length));
   trunkMats.forEach((m, i) => trunkMesh.setMatrixAt(i, m));
@@ -200,8 +221,11 @@ export function buildProps(graph: RoadGraph, colliders: AABBCollider[], rng: RNG
     lampPositions,
     buildingMats,
     treeMat,
-    updateNight(night: number) {
+    updateNight(night: number, timeSec = 0, wind = 1) {
       lampHeadMat.emissiveIntensity = night * 2.4;
+      lampConeMat.opacity = night * 0.09;
+      windUniforms.uTime.value = timeSec;
+      windUniforms.uWind.value = 0.4 + wind * 0.6;
     },
   };
 }

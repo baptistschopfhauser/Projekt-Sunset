@@ -13,6 +13,7 @@ import { rayAABB, raySphere, circleAABBResolve, clamp } from '../src/core/math.t
 import { BilliardsGame, ballGroup, BALL_R, defaultTable } from '../src/minigames/billiards.ts';
 import { explosionDamage } from '../src/vehicles/damageFx.ts';
 import { validateSaveData } from '../src/save/saveManager.ts';
+import { PerformanceManager, QUALITY_ORDER } from '../src/core/performance.ts';
 import * as THREE from 'three';
 
 let passed = 0;
@@ -303,6 +304,21 @@ const rng = new RNG(1234);
   ok(!validateSaveData({ ...goodSave, player: { position: { x: 'a', y: 0, z: 0 } } }), 'non-numeric position rejected');
   ok(!validateSaveData({ ...goodSave, worldTimeMinutes: NaN }), 'NaN time rejected');
   ok(!validateSaveData({ ...goodSave, ownedVehicles: {} }), 'bad ownedVehicles rejected');
+}
+
+{
+  const pm = new PerformanceManager('high');
+  ok(pm.current === 'high', 'perf starts at configured');
+  let changes: string[] = [];
+  pm.onChange = (q) => changes.push(q);
+  for (let i = 0; i < 900; i++) pm.update(1 / 30, i * (1 / 30));
+  ok(changes.includes('medium') && changes.includes('low'), `perf steps down on low fps (now ${pm.current}, changes: ${changes})`);
+  ok(pm.current === 'low', 'perf floors at low');
+  const pm2 = new PerformanceManager('low');
+  pm2.setConfiguredMax('ultra');
+  for (let i = 0; i < 4000; i++) pm2.update(1 / 120, 100 + i * (1 / 120));
+  ok(pm2.current === 'ultra', `perf climbs back up on high fps (now ${pm2.current})`);
+  ok(QUALITY_ORDER.length === 4, 'four quality levels');
 }
 
 {

@@ -26,6 +26,8 @@ export interface MenuApi {
   messages(): { from: string; text: string; time: string; unread: boolean }[];
   markMessagesRead(): void;
   teleportToGarageVehicle(uid: number): void;
+  fetchLeaderboard(kind?: string): Promise<{ name: string; kind: string; value: number; detail: string; at: number }[]>;
+  backendStatus(): Promise<string>;
 }
 
 export class Menus {
@@ -67,6 +69,10 @@ export class Menus {
       panel.style.textAlign = 'center';
       el('h1', 'logo', panel, 'PROJECT SUNSET');
       el('div', 'subtitle', panel, 'SUNSET COUNTY - PORT SOLACE');
+      const status = el('div', 'subtitle', panel, 'Backend: prüfe...');
+      status.style.marginTop = '18px';
+      status.style.fontSize = '12px';
+      void this.api.backendStatus().then((s) => (status.textContent = s));
       const mk = (label: string, fn: () => void, disabled = false) => {
         const b = el('button', 'menu-btn', panel, label);
         b.style.margin = '10px auto';
@@ -329,6 +335,7 @@ export class Menus {
         ['🏦', 'Bank', () => (this.phoneApp = 'bank')],
         ['🎯', 'Aktivitäten', () => (this.phoneApp = 'activities')],
         ['👤', 'Kontakte', () => (this.phoneApp = 'contacts')],
+        ['🏆', 'Rangliste', () => (this.phoneApp = 'leaderboard')],
         ['⚙️', 'Einstellungen', () => this.showSettings(() => this.closePhoneAndSettings())],
       ];
       for (const [ico, name, fn] of apps) {
@@ -410,6 +417,21 @@ export class Menus {
       for (const c of ['Marcus Reed (Mission - Pier 17)', 'Westhaven Motors (Autohändler)', 'AutoFix (Werkstatt)', 'The Crown Casino', 'Sunset Dispatch (Lieferung/Taxi)']) {
         el('div', 'msg', screen, c);
       }
+    } else if (this.phoneApp === 'leaderboard') {
+      el('div', '', screen, 'RANGELISTE (Backend)').id = 'phone-title';
+      const list = el('div', '', screen, 'lädt...');
+      void this.api.fetchLeaderboard('all').then((rows) => {
+        clear(list);
+        if (rows.length === 0) {
+          el('div', '', list, 'Keine Einträge - Backend offline oder noch keine Scores.');
+          return;
+        }
+        rows.slice(0, 12).forEach((r, i) => {
+          const d = el('div', 'msg', list);
+          el('div', 'from', d, `#${i + 1} ${r.name} - ${r.kind}`);
+          el('div', '', d, `${r.value.toLocaleString('en-US')} ${r.detail ? '- ' + r.detail : ''}`);
+        });
+      });
     } else if (this.phoneApp === 'map') {
       el('div', '', screen, 'KARTE - siehe M für große Karte').id = 'phone-title';
       el('div', '', screen, `Position: ${Math.round(this.api.economySnapshot().cash) ? '' : ''}Weltkarte über Taste M.`);

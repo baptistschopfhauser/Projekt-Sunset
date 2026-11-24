@@ -23,6 +23,8 @@ import { DamageFX, explosionDamage } from '../vehicles/damageFx.ts';
 import { PerformanceManager, QUALITY_ORDER } from '../core/performance.ts';
 import { PickupManager } from '../world/pickups.ts';
 import { DISTRICTS } from '../core/config.ts';
+import { Leaderboard } from '../net/leaderboard.ts';
+import { attachPlayerSpot } from '../vehicles/vehicle.ts';
 import { TimeSystem } from '../weather/time.ts';
 import { WeatherSystem } from '../weather/weather.ts';
 import { HUD } from '../ui/hud.ts';
@@ -59,6 +61,7 @@ export class Game {
   damageFx: DamageFX;
   perf: PerformanceManager;
   pickups: PickupManager;
+  leaderboard = new Leaderboard();
   lastDistrict = '';
   time: TimeSystem;
   weather: WeatherSystem;
@@ -124,6 +127,7 @@ export class Game {
     });
     this.events.on('RACE_FINISHED', (p) => {
       if (p.position !== 1) return;
+      void this.leaderboard.submit(`race:${p.route}`, p.reward, 'Rennsieg');
       const k = `racewins_${p.route}`;
       const n = ((this.activities.flags[k] as number) ?? 0) + 1;
       this.activities.flags[k] = n;
@@ -132,6 +136,12 @@ export class Game {
         this.economy.earn(2000, `Renn-Serie gewonnen: ${p.route} (3 Siege)`);
         this.events.emit('NOTIFICATION', { text: '+2.000 $ Renn-Serie (3 Siege in Folge-Zähler)', kind: 'money' });
       }
+    });
+    this.events.on('MISSION_COMPLETED', (p) => {
+      void this.leaderboard.submit('mission', p.reward, `THE HARBOR JOB abgeschlossen`);
+    });
+    this.events.on('PLAYER_BUSTED', () => {
+      void this.leaderboard.submit('bust_wanted', this.police.wanted.level, 'Verhaftet auf Fahndungsstufe');
     });
     this.events.on('ACTIVITY_COMPLETED', (p) => {
       if (p.id !== 'repo_job') return;
@@ -219,6 +229,11 @@ export class Game {
       messages: () => this.messages,
       markMessagesRead: () => this.messages.forEach((m) => (m.unread = false)),
       teleportToGarageVehicle: () => {},
+      fetchLeaderboard: (kind?: string) => this.leaderboard.top(kind ?? 'all'),
+      backendStatus: async () => {
+        const online = await this.leaderboard.check();
+        return online ? `Backend: online (${this.leaderboard.base})` : 'Backend: offline (nur lokaler Modus)';
+      },
     };
   }
 
@@ -855,6 +870,7 @@ export class Game {
         this.player.group.visible = false;
         this.cam.mode = 'vehicle';
         this.audio.init();
+        attachPlayerSpot(v);
       }
       return;
     }
@@ -1378,7 +1394,7 @@ export class Game {
     fog.far = baseFar * (1 - this.weather.fogDensityBoost * 0.55);
     fog.color.setHex(0xbfd9e8).lerp(new THREE.Color(PALETTE.midnightNavy), sun.nightFactor * 0.85).lerp(new THREE.Color(0x8a8f98), this.weather.cloudiness * 0.5);
     this.renderer.scene.background = new THREE.Color().copy(fog.color);
-    this.world.updateEnvironment(sun.nightFactor, this.simTime);
+    this.world.updateEnvironment(sun.nightFactor, this.simTime, this.weather.wind, sun.dir, sun.color);
     const wet = this.weather.wetness;
     const rm = this.world.roadMat as THREE.MeshStandardMaterial;
     rm.roughness = lerp(0.92, 0.26, wet);

@@ -16,7 +16,7 @@ export interface World {
   losColliders: AABBCollider[];
   pois: POI[];
   spawnPoint: THREE.Vector3;
-  updateEnvironment(nightFactor: number, timeSec: number): void;
+  updateEnvironment(nightFactor: number, timeSec: number, wind?: number, sunDir?: THREE.Vector3, sunColor?: THREE.Color): void;
   waterMesh: THREE.Mesh;
   buildingCount: number;
   props: ReturnType<typeof buildProps>;
@@ -82,15 +82,66 @@ function buildGround(scene: THREE.Scene): THREE.Mesh {
   return mesh;
 }
 
+export const waterUniforms = {
+  uTime: { value: 0 },
+  uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+  uSunColor: { value: new THREE.Color(0xfff4e0) },
+  uSkyColor: { value: new THREE.Color(0x9fc4de) },
+  uDeepColor: { value: new THREE.Color(PALETTE.deepTeal).multiplyScalar(0.55) },
+  uNight: { value: 0 },
+  uWet: { value: 0 },
+};
+
 function buildWater(scene: THREE.Scene): THREE.Mesh {
-  const geo = new THREE.PlaneGeometry(3900, 3500, 1, 1);
+  const geo = new THREE.PlaneGeometry(3900, 3500, 96, 84);
   geo.rotateX(-Math.PI / 2);
-  const mat = new THREE.MeshStandardMaterial({
-    color: PALETTE.deepTeal,
+  const mat = new THREE.ShaderMaterial({
+    uniforms: waterUniforms,
     transparent: true,
-    opacity: 0.86,
-    roughness: 0.15,
-    metalness: 0.1,
+    fog: true,
+    vertexShader: /* glsl */ `
+      uniform float uTime;
+      varying vec3 vWorld;
+      varying vec3 vNormalW;
+      #include <fog_pars_vertex>
+      void main() {
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        float w = sin(wp.x * 0.05 + uTime * 1.3) * 0.12 + sin(wp.z * 0.043 + uTime * 0.9) * 0.1 + sin((wp.x + wp.z) * 0.021 + uTime * 1.8) * 0.08;
+        wp.y += w;
+        vWorld = wp.xyz;
+        vNormalW = normalize(vec3(-cos(wp.x * 0.05 + uTime * 1.3) * 0.4, 1.0, -cos(wp.z * 0.043 + uTime * 0.9) * 0.34));
+        vec4 mvPosition = viewMatrix * wp;
+        gl_Position = projectionMatrix * mvPosition;
+        #include <fog_vertex>
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform float uTime;
+      uniform vec3 uSunDir;
+      uniform vec3 uSunColor;
+      uniform vec3 uSkyColor;
+      uniform vec3 uDeepColor;
+      uniform float uNight;
+      uniform float uWet;
+      varying vec3 vWorld;
+      varying vec3 vNormalW;
+      #include <fog_pars_fragment>
+      void main() {
+        vec3 viewDir = normalize(cameraPosition - vWorld);
+        vec3 n = normalize(vNormalW + vec3(sin(vWorld.x * 0.8 + uTime * 2.0) * 0.04, 0.0, sin(vWorld.z * 0.7 - uTime * 1.7) * 0.04));
+        float fres = pow(1.0 - max(dot(viewDir, n), 0.0), 3.0);
+        vec3 sky = mix(uSkyColor, uSkyColor * 0.25, uNight);
+        vec3 col = mix(uDeepColor, sky, fres * 0.75 + 0.12);
+        vec3 r = reflect(-normalize(uSunDir), n);
+        float spec = pow(max(dot(r, viewDir), 0.0), 240.0);
+        col += uSunColor * spec * (2.2 - uNight * 1.8);
+        float sparkle = pow(max(dot(r, viewDir), 0.0), 24.0) * 0.12 * (1.0 - uNight);
+        col += uSunColor * sparkle;
+        col += vec3(1.0) * uWet * 0.03;
+        gl_FragColor = vec4(col, 0.88);
+        #include <fog_fragment>
+      }
+    `,
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.y = WORLD.waterLevel + 0.06;
@@ -244,14 +295,15 @@ export function buildWorld(scene: THREE.Scene, seed = 20240917): World {
     roadMat,
     walkMat,
     groundMat: groundMesh.material as THREE.Material,
-    updateEnvironment(nightFactor: number, timeSec: number) {
+    updateEnvironment(nightFactor: number, timeSec: number, wind = 1, sunDir?: THREE.Vector3, sunColor?: THREE.Color) {
       buildings.updateNight(nightFactor);
-      props.updateNight(nightFactor);
-      const wm = waterMesh.material as THREE.MeshStandardMaterial;
-      wm.roughness = 0.15 + (1 - nightFactor) * 0.0;
-      const pos = waterMesh.geometry.attributes.position as THREE.BufferAttribute;
-      void pos;
-      waterMesh.position.y = WORLD.waterLevel + 0.06 + Math.sin(timeSec * 0.8) * 0.03;
+      props.updateNight(nightFactor, timeSec, wind);
+      waterUniforms.uTime.value = timeSec;
+      waterUniforms.uNight.value = nightFactor;
+      if (sunDir) waterUniforms.uSunDir.value.copy(sunDir);
+      if (sunColor) waterUniforms.uSunColor.value.copy(sunColor);
+      waterUniforms.uSkyColor.value.setHex(0x9fc4de).lerp(new THREE.Color(PALETTE.midnightNavy), nightFactor * 0.9);
+      waterMesh.position.y = WORLD.waterLevel + 0.06;
     },
   };
   return world;

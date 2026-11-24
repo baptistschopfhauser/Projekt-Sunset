@@ -184,6 +184,32 @@ export function buildBuildings(graph: RoadGraph, colliders: AABBCollider[], rese
     if (pv.mesh.instanceColor) pv.mesh.instanceColor.needsUpdate = true;
   });
 
+  const acGeo = new THREE.BoxGeometry(1.6, 1.0, 1.6);
+  const acMat = new THREE.MeshStandardMaterial({ color: 0x9aa3ad, roughness: 0.6, metalness: 0.4 });
+  const acMats: THREE.Matrix4[] = [];
+  perVariant.forEach((pv, vi) => {
+    pv.mats.forEach((m, i) => {
+      const e = new THREE.Matrix4().fromArray(m.elements);
+      const pos = new THREE.Vector3().setFromMatrixPosition(e);
+      const scale = new THREE.Vector3().setFromMatrixScale(e);
+      if (scale.y > 14 && rng.chance(0.55)) {
+        dummy.position.set(pos.x + rng.range(-2, 2), pos.y + scale.y + 0.4, pos.z + rng.range(-2, 2));
+        dummy.rotation.set(0, rng.range(0, 6.28), 0);
+        dummy.scale.set(rng.range(0.8, 1.4), 1, rng.range(0.8, 1.4));
+        dummy.updateMatrix();
+        acMats.push(dummy.matrix.clone());
+      }
+      void vi;
+      void i;
+    });
+  });
+  if (acMats.length > 0) {
+    const acMesh = new THREE.InstancedMesh(acGeo, acMat, acMats.length);
+    acMats.forEach((m, i) => acMesh.setMatrixAt(i, m));
+    acMesh.instanceMatrix.needsUpdate = true;
+    group.add(acMesh);
+  }
+
   const benchGeo = new THREE.BoxGeometry(2, 0.5, 0.6);
   const benchMat = new THREE.MeshStandardMaterial({ color: 0x6b4f2a, roughness: 0.8 });
   const benchMats: THREE.Matrix4[] = [];

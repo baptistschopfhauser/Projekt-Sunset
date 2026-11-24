@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { PALETTE } from '../core/config.ts';
 import { RNG } from '../core/rng.ts';
 
+const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+
 const skyVert = /* glsl */ `
   varying vec3 vDir;
   void main() {
@@ -42,6 +44,9 @@ export class Sky {
   clouds: THREE.Group;
   cloudMat: THREE.MeshBasicMaterial;
   rng: RNG;
+  sunSprite: THREE.Sprite;
+  moonSprite: THREE.Sprite;
+  sunGlow: THREE.Sprite;
 
   constructor(scene: THREE.Scene) {
     this.uniforms = {
@@ -100,6 +105,29 @@ export class Sky {
       this.clouds.add(m);
     }
     scene.add(this.clouds);
+
+    const mkGlow = (inner: string, outer: string, size: number) => {
+      const c = document.createElement('canvas');
+      c.width = 128;
+      c.height = 128;
+      const ctx = c.getContext('2d')!;
+      const g = ctx.createRadialGradient(64, 64, 2, 64, 64, 63);
+      g.addColorStop(0, inner);
+      g.addColorStop(0.35, outer);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 128, 128);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, fog: false }));
+      spr.scale.set(size, size, 1);
+      spr.renderOrder = 998;
+      scene.add(spr);
+      return spr;
+    };
+    this.sunSprite = mkGlow('rgba(255,250,230,1)', 'rgba(255,190,110,0.55)', 260);
+    this.sunGlow = mkGlow('rgba(255,220,160,0.5)', 'rgba(255,170,90,0.18)', 900);
+    this.moonSprite = mkGlow('rgba(220,230,255,0.95)', 'rgba(160,180,255,0.35)', 130);
   }
 
   update(sunDir: THREE.Vector3, night: number, sunset: number, cloudiness: number, wind: number, dt: number, camPos: THREE.Vector3): void {
@@ -116,5 +144,15 @@ export class Sky {
       c.position.x += wind * dt * 6;
       if (c.position.x > 2600) c.position.x = -2600;
     }
+    const sunPos = camPos.clone().addScaledVector(sunDir, 2750);
+    this.sunSprite.position.copy(sunPos);
+    this.sunGlow.position.copy(sunPos);
+    this.sunSprite.visible = sunDir.y > -0.08;
+    this.sunGlow.visible = this.sunSprite.visible;
+    const moonDir = sunDir.clone().multiplyScalar(-1);
+    this.moonSprite.position.copy(camPos.clone().addScaledVector(moonDir, 2750));
+    this.moonSprite.visible = night > 0.3;
+    (this.sunSprite.material as THREE.SpriteMaterial).opacity = clamp01(1 - night * 1.2) * clamp01(sunDir.y * 8 + 0.6);
+    (this.moonSprite.material as THREE.SpriteMaterial).opacity = night * 0.9;
   }
 }

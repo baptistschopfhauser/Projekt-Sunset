@@ -9,6 +9,8 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
+    "build:serve": "npm run build && node server/server.mjs",
+    "start": "node server/server.mjs",
     "test:logic": "node --experimental-strip-types scripts/logic-tests.ts"
   },
   "dependencies": {

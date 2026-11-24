@@ -36,6 +36,7 @@ export class Vehicle {
   isPolice = false;
   owned = false;
   plate = '';
+  policeLights: THREE.PointLight[] = [];
   upgrades: string[] = [];
   private wheelSpin = 0;
   private smokeTime = 0;
@@ -58,6 +59,14 @@ export class Vehicle {
     this.lightBar = (this.mesh.userData.lightBar as THREE.Mesh) ?? null;
     this.lightBarMat = (this.mesh.userData.lightBarMat as THREE.MeshStandardMaterial) ?? null;
     this.wheels = this.mesh.userData.wheels as THREE.Mesh[];
+    if (this.isPolice) {
+      const blue = new THREE.PointLight(0x2478f2, 0, 30, 2);
+      blue.position.set(-0.5, this.def.height * 0.75 + 0.3, 0);
+      const red = new THREE.PointLight(0xeb3f47, 0, 30, 2);
+      red.position.set(0.5, this.def.height * 0.75 + 0.3, 0);
+      this.mesh.add(blue, red);
+      this.policeLights = [blue, red];
+    }
     scene.add(this.mesh);
   }
 
@@ -273,6 +282,8 @@ export class Vehicle {
     this.headMat.emissiveIntensity = on ? 3 : 0;
     this.reverseMat.emissiveIntensity = on ? 0.8 : 0;
     if (this.spot) this.spot.visible = on && night;
+    const cone = this.mesh.userData.headCone as THREE.Mesh | undefined;
+    if (cone) cone.visible = on && night;
   }
 
   updatePoliceLights(time: number): void {
@@ -280,6 +291,8 @@ export class Vehicle {
     const phase = Math.floor(time * 6) % 2;
     this.lightBarMat.emissive.setHex(phase === 0 ? 0x2478f2 : 0xeb3f47);
     this.lightBarMat.emissiveIntensity = 3;
+    if (this.policeLights[0]) this.policeLights[0].intensity = phase === 0 ? 80 : 0;
+    if (this.policeLights[1]) this.policeLights[1].intensity = phase === 1 ? 80 : 0;
   }
 
   dispose(scene: THREE.Scene): void {
@@ -407,6 +420,52 @@ export function buildVehicleMesh(def: VehicleDef, color: number, police: boolean
   bumperB.position.z = -L / 2 - 0.05;
   g.add(grill, bumperF, bumperB);
 
+  const mirrorGeo = new THREE.BoxGeometry(0.05, 0.09, 0.14);
+  const mirrorMat = new THREE.MeshStandardMaterial({ color: 0x111418, roughness: 0.3, metalness: 0.6 });
+  const mirrorL = new THREE.Mesh(mirrorGeo, mirrorMat);
+  mirrorL.position.set(-W / 2 - 0.04, gc + H * 0.42, L * 0.18);
+  const mirrorR = mirrorL.clone();
+  mirrorR.position.x = W / 2 + 0.04;
+  g.add(mirrorL, mirrorR);
+
+  const exhaustGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.22, 8);
+  exhaustGeo.rotateX(Math.PI / 2);
+  const exhaustMat = new THREE.MeshStandardMaterial({ color: 0x8a8f98, metalness: 0.9, roughness: 0.3 });
+  const exhaust = new THREE.Mesh(exhaustGeo, exhaustMat);
+  exhaust.position.set(-W * 0.28, gc + 0.14, -L / 2 - 0.1);
+  const exhaust2 = exhaust.clone();
+  exhaust2.position.x = W * 0.28;
+  g.add(exhaust, exhaust2);
+
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.16, 0.03), new THREE.MeshStandardMaterial({ color: 0xf1f3f5, roughness: 0.5 }));
+  plate.position.set(0, gc + H * 0.3, -L / 2 - 0.03);
+  g.add(plate);
+
+  if (def.cls === 'sport' || def.cls === 'super' || def.cls === 'police_sport') {
+    const spoiler = new THREE.Mesh(new THREE.BoxGeometry(W * 0.86, 0.06, 0.34), bodyMat);
+    spoiler.position.set(0, gc + H * 0.62, -L / 2 + 0.15);
+    spoiler.castShadow = true;
+    const strutGeo = new THREE.BoxGeometry(0.06, 0.18, 0.08);
+    const strutL = new THREE.Mesh(strutGeo, darkMat);
+    strutL.position.set(-W * 0.3, gc + H * 0.5, -L / 2 + 0.15);
+    const strutR = strutL.clone();
+    strutR.position.x = W * 0.3;
+    g.add(spoiler, strutL, strutR);
+  }
+  if (def.cls === 'suv' || def.cls === 'offroad') {
+    const railGeo = new THREE.BoxGeometry(0.05, 0.05, L * 0.4);
+    const railL = new THREE.Mesh(railGeo, darkMat);
+    railL.position.set(-W * 0.3, gc + H * 0.62 + cabinH * 0.5, cabinZ);
+    const railR = railL.clone();
+    railR.position.x = W * 0.3;
+    g.add(railL, railR);
+    if (def.cls === 'offroad') {
+      const bullBar = new THREE.Mesh(new THREE.BoxGeometry(W + 0.2, 0.1, 0.1), darkMat);
+      bullBar.position.set(0, gc + 0.35, L / 2 + 0.12);
+      g.add(bullBar);
+    }
+  }
+
   if (police) {
     const barMat = new THREE.MeshStandardMaterial({ color: 0x222222, emissive: 0x2478f2, emissiveIntensity: 3 });
     const bar = new THREE.Mesh(new THREE.BoxGeometry(W * 0.7, 0.14, 0.3), barMat);
@@ -445,10 +504,18 @@ function policeSign(): THREE.CanvasTexture {
 }
 
 export function attachPlayerSpot(v: Vehicle): void {
-  const spot = new THREE.SpotLight(0xfff2c8, 0, 90, 0.5, 0.5, 1.6);
+  if (v.spot) return;
+  const spot = new THREE.SpotLight(0xfff2c8, 0, 110, 0.42, 0.45, 1.5);
   spot.position.set(0, v.def.height * 0.7, v.def.length / 2);
   spot.target.position.set(0, 0, v.def.length * 4);
   v.mesh.add(spot);
   v.mesh.add(spot.target);
   v.spot = spot;
+  const coneGeo = new THREE.ConeGeometry(3.4, 26, 16, 1, true);
+  coneGeo.rotateX(Math.PI / 2);
+  coneGeo.translate(0, 0, v.def.length / 2 + 13);
+  const cone = new THREE.Mesh(coneGeo, new THREE.MeshBasicMaterial({ color: 0xfff2c8, transparent: true, opacity: 0.05, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  cone.visible = false;
+  v.mesh.add(cone);
+  v.mesh.userData.headCone = cone;
 }

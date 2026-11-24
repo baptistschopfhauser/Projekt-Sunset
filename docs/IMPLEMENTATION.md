@@ -9,7 +9,9 @@ and where the implementation deliberately deviates from the spec (per the spec's
 npm install
 npm run dev        # dev server on http://127.0.0.1:5173
 npm run build      # production build to dist/
-npm run preview    # serve dist/
+npm run preview    # serve dist/ via vite
+npm run start      # backend: static dist/ + JSON API on http://127.0.0.1:8080 (SUNSET_PORT to change)
+npm run build:serve # build + start backend
 npm run typecheck  # tsc --noEmit
 npm run test:logic # node-based unit tests for pure game logic (no browser needed)
 ```
@@ -42,6 +44,14 @@ no external assets are downloaded.
 - **Live traffic accidents** (spec 9.7): crossing traffic cars that collide stop with damage and trigger reactions.
 - **District toasts** when entering a new district; corrupted savegames are rejected with a message (spec 2.10).
 - **Progression bonuses**: 3 wins on a race route -> +2.000 $ once; 3 repo jobs -> +3.000 $ once (persisted flags).
+
+## Round 4 - graphics push + backend
+- **Postprocessing**: EffectComposer with UnrealBloom (quality-gated, off on low) + ACES tone mapping.
+- **Water**: custom shader with animated waves, fresnel sky reflection and sun glint.
+- **Sky**: sun disc + glow and moon sprites that track the sun/moon direction.
+- **Vehicles**: mirrors, exhausts, spoilers, roof rails, bull bars, plates; player car gets a real headlight spotlight + volumetric-style cone at night; police cars get flashing blue/red point lights.
+- **World dressing**: wind-swaying trees (shader uniform driven by weather wind), night light cones under street lamps, rooftop AC units.
+- **Backend** (`server/server.mjs`, no dependencies): serves `dist/` and a JSON API - `GET /api/health`, `POST /api/scores`, `GET /api/leaderboard?kind=`, `GET /api/stats` - persisted to `server/data/leaderboard.json`. The game submits race wins, mission rewards and busts; the phone has a Rangliste app and the main menu shows backend status. Fully offline-safe (game works without it).
 - **HUD/UI**: minimap with roads/water/POIs/police/GPS route, full map (M) with pan/zoom/click-GPS, health/stamina, money, 5 stars, ammo, vehicle speed/fuel/damage, mission objective, interaction prompts, notifications, dialogs, smartphone (H) with messages/map/garage/bank/activities/contacts/settings apps, inventory (I).
 - **Save**: versioned saves in IndexedDB (localStorage fallback), 3 slots + autosave (every 5 min outside combat and after missions), settings in localStorage.
 - **Audio**: fully procedural WebAudio - engine, siren, gunshots, impacts, footsteps, UI, cash, thunder, rain, waves, and a generative music system with moods (menu/explore/pursuit/mission/casino); master/music/sfx buses.
@@ -61,4 +71,4 @@ no external assets are downloaded.
 
 - `npx tsc --noEmit` - clean.
 - `npm run build` - clean (700 kB bundle).
-- `npm run test:logic` - 475 assertions passing (road graph/A*, wanted levels/timers, economy atomicity, blackjack rules, roulette payouts, slots paylines, billiards physics/rules, explosion falloff, save validation, collision math, spec data tables).
+- `npm run test:logic` - 480 assertions passing (road graph/A*, wanted levels/timers, economy atomicity, blackjack rules, roulette payouts, slots paylines, billiards physics/rules, explosion falloff, save validation, adaptive-performance logic, collision math, spec data tables).
